@@ -10,13 +10,15 @@ Python 코드 내에서 다른 Triton 모델을 직접 호출하여
   3. request.trace() 로 트레이싱 전파 (OpenTelemetry 연동)
 """
 
+import json
+
 import numpy as np
 import triton_python_backend_utils as pb_utils
 
 
 class TritonPythonModel:
     def initialize(self, args):
-        self.model_config = pb_utils.get_model_config()
+        self.model_config = json.loads(args["model_config"])
 
     def execute(self, requests):
         responses = []

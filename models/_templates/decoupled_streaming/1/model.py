@@ -10,13 +10,15 @@ LLM 서빙, ASR 실시간 전사 등에 사용.
   - response_sender.send(response, flags=FINAL)           # 마지막 응답
 """
 
+import json
+
 import numpy as np
 import triton_python_backend_utils as pb_utils
 
 
 class TritonPythonModel:
     def initialize(self, args):
-        self.model_config = pb_utils.get_model_config()
+        self.model_config = json.loads(args["model_config"])
         # 실제 LLM 엔진 초기화 (vLLM, TGI 등)
         # self.engine = ...
 
@@ -41,6 +43,13 @@ class TritonPythonModel:
                 # 실제 구현에서는 LLM 엔진의 generate() 이터레이터 사용
                 # ---------------------------------------------------------
                 generated_tokens = self._generate_tokens(input_text, max_tokens)
+
+                if not generated_tokens:
+                    response_sender.send(
+                        pb_utils.InferenceResponse(output_tensors=[]),
+                        flags=pb_utils.TRITONSERVER_RESPONSE_COMPLETE_FINAL,
+                    )
+                    continue
 
                 for i, token in enumerate(generated_tokens):
                     is_last = i == len(generated_tokens) - 1
