@@ -15,6 +15,8 @@ on:
       - 'configs/**'
       - 'scripts/**'
       - 'deploy/docker/**'
+      - '.github/**'
+      - 'requirements*.txt'
 
 env:
   REGISTRY: ghcr.io
@@ -37,7 +39,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pyyaml
+        run: python -m pip install -r requirements-dev.txt
 
       # ── Step 1: Build model_repository ──
       - name: Build model repository
@@ -90,7 +92,7 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          pip install pytest requests tritonclient[all]
+          python -m pip install -r requirements-integration.txt
           pytest tests/smoke/ --triton-url http://localhost:8000 -v
 
       - name: Cleanup test container

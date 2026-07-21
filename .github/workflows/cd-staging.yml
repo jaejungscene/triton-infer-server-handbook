@@ -57,7 +57,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          pip install pytest requests tritonclient[all]
+          python -m pip install -r requirements-integration.txt
           TRITON_URL=$(kubectl get svc triton-server -n staging -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
           pytest tests/integration/ --triton-url "http://${TRITON_URL}:8000" -v
 

@@ -68,7 +68,7 @@ jobs:
       # ── Post-deploy 검증 ──
       - name: Smoke test
         run: |
-          pip install pytest requests
+          python -m pip install -r requirements-dev.txt
           TRITON_URL=$(kubectl get svc triton-server -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
           pytest tests/smoke/ --triton-url "http://${TRITON_URL}:8000" -v
 

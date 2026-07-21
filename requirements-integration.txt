@@ -1,0 +1,4 @@
+# Dependencies for smoke, integration, and performance checks that talk to a
+# running Triton server.
+-r requirements-dev.txt
+tritonclient[all]==2.49.0
