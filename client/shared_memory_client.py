@@ -163,7 +163,9 @@ class TritonSHMClient:
             np.int64: "INT64",
             np.uint8: "UINT8",
         }
-        return mapping.get(dtype.type, "FP32")
+        if dtype.type not in mapping:
+            raise ValueError(f"Unsupported NumPy dtype for Triton shared memory inference: {dtype}")
+        return mapping[dtype.type]
 
     def __del__(self):
         self.cleanup()

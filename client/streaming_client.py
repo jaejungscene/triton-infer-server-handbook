@@ -90,26 +90,25 @@ class TritonStreamingClient:
 
         output = self._grpcclient.InferRequestedOutput("OUTPUT_TOKEN")
 
-        # Start streaming
         self._client.start_stream(callback=_callback)
-        self._client.async_stream_infer(
-            model_name=model_name,
-            model_version=model_version,
-            inputs=[text_input, max_tokens_input],
-            outputs=[output],
-            enable_empty_final_response=True,
-        )
+        try:
+            self._client.async_stream_infer(
+                model_name=model_name,
+                model_version=model_version,
+                inputs=[text_input, max_tokens_input],
+                outputs=[output],
+                enable_empty_final_response=True,
+            )
 
-        # Yield tokens as they arrive
-        while True:
-            token = result_queue.get()
-            if token is None:
-                break
-            if error_holder[0]:
-                raise RuntimeError(f"Inference error: {error_holder[0]}")
-            yield token
-
-        self._client.stop_stream()
+            while True:
+                token = result_queue.get()
+                if token is None:
+                    if error_holder[0]:
+                        raise RuntimeError(f"Inference error: {error_holder[0]}")
+                    break
+                yield token
+        finally:
+            self._client.stop_stream()
 
     def stream_infer_async(
         self,

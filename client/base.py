@@ -45,4 +45,6 @@ class BaseTritonClient(ABC):
 
     def close(self):
         """클라이언트 리소스 정리"""
+        if self._client and hasattr(self._client, "close"):
+            self._client.close()
         self._client = None
