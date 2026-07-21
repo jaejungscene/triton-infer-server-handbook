@@ -21,7 +21,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: triton          # service.yaml의 name과 일치
+                name: triton-server   # service.yaml의 name과 일치
                 port:
                   number: 8000
 
@@ -34,7 +34,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: triton
+                name: triton-server
                 port:
                   number: 8001
 

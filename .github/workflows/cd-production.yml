@@ -69,14 +69,27 @@ jobs:
       - name: Smoke test
         run: |
           python -m pip install -r requirements-dev.txt
-          TRITON_URL=$(kubectl get svc triton-server -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          pytest tests/smoke/ --triton-url "http://${TRITON_URL}:8000" -v
+          kubectl port-forward -n production svc/triton-server 8000:8000 8002:8002 >/tmp/triton-port-forward.log 2>&1 &
+          PF_PID=$!
+          trap 'kill ${PF_PID}' EXIT
+
+          for i in $(seq 1 30); do
+            if curl -sf "http://localhost:8000/v2/health/ready" > /dev/null 2>&1; then
+              pytest tests/smoke/ --triton-url "http://localhost:8000" -v
+              exit 0
+            fi
+            echo "Waiting for port-forwarded Triton... (${i}/30)"
+            sleep 5
+          done
+
+          cat /tmp/triton-port-forward.log
+          exit 1
 
       - name: Performance baseline check
         run: |
-          TRITON_URL=$(kubectl get svc triton-server -n production -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          echo "Production Triton at: ${TRITON_URL}"
-          echo "Manual perf check: ./tests/perf/run_perf_analyzer.sh --url ${TRITON_URL}:8000"
+          echo "Production service is ClusterIP. Use kubectl port-forward or the configured Ingress for manual perf checks."
+          echo "Example: kubectl port-forward -n production svc/triton-server 8000:8000"
+          echo "Then run: ./tests/perf/run_perf_analyzer.sh --url localhost:8000"
 
       # ── 자동 롤백 (smoke test 실패 시) ──
       - name: Auto-rollback on failure
