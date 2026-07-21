@@ -13,10 +13,10 @@
 ## 설치
 
 ```bash
-pip install tritonclient[all]
-# 또는 개별 설치:
-# pip install tritonclient[http]
-# pip install tritonclient[grpc]
+python -m pip install -r requirements-integration.txt
+
+# 개별 설치가 필요하면 Triton 서버 버전과 맞춰 고정합니다.
+# 예: python -m pip install "tritonclient[grpc]==2.49.0"
 ```
 
 ## 클라이언트 목록

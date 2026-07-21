@@ -1,6 +1,6 @@
 apiVersion: v2
 name: triton
-description: NVIDIA Triton Inference Server — Production-Ready Helm Chart
+description: NVIDIA Triton Inference Server Helm Chart for production-oriented deployments
 type: application
 version: 0.1.0
 appVersion: "24.08"

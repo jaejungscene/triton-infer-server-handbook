@@ -1,4 +1,4 @@
-# Triton Inference Server — Production-Ready Serving Platform
+# Triton Inference Server — Production Handbook
 
 실무에서 바로 활용하고, 확장·유지보수할 수 있는 Triton 추론 서버 가이드라인 입니다.
 
@@ -78,7 +78,7 @@ triton-inference-server/
 │       │       ├── postprocessor/       # Python 백엔드 (NMS)
 │       │       └── pipeline/            # Ensemble config (DAG 연결)
 │       ├── nlp/
-│       │   ├── text_classifier/         # Python 백엔드 (GPU)
+│       │   ├── text_classifier/         # Python 백엔드 (CPU smoke 예제)
 │       │   └── llm/                     # vLLM + Decoupled Streaming
 │       └── tabular/
 │           └── anomaly_detector/        # FIL (Forest Inference Library)
@@ -180,7 +180,7 @@ triton-inference-server/
 │
 ├── tests/                               # 테스트 피라미드
 │   ├── config/                          # config.pbtxt 검증 (PR마다 실행)
-│   ├── smoke/                           # 서버 기동 + 기본 추론 (배포 직후)
+│   ├── smoke/                           # 서버 기동 + 모델 로드 + metrics 확인 (배포 직후)
 │   ├── integration/                     # E2E 파이프라인 테스트 (staging)
 │   ├── perf/                            # 성능 기준선 비교 (주간)
 │   │   └── run_perf_analyzer.sh         # perf_analyzer 래퍼 스크립트
@@ -338,7 +338,7 @@ kubectl apply -k deploy/k8s/overlays/staging
 4. **빌드 & 테스트**
    ```bash
    ./scripts/build.sh --env dev
-   docker compose up -d
+   docker compose -f deploy/docker/docker-compose.yml up -d
    pytest tests/smoke/
    ```
 
