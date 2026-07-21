@@ -41,10 +41,9 @@ class TestResponseCache:
         # 결과가 동일해야 함
         np.testing.assert_array_equal(output1, output2)
 
-    def test_cache_metrics(self, triton_url):
+    def test_cache_metrics(self, triton_metrics_url):
         """캐시 메트릭이 Prometheus에 노출되는지 확인"""
-        metrics_url = triton_url.replace(":8000", ":8002")
-        response = requests.get(f"{metrics_url}/metrics", timeout=10)
+        response = requests.get(f"{triton_metrics_url}/metrics", timeout=10)
 
         if response.status_code != 200:
             pytest.skip("Metrics endpoint not available")

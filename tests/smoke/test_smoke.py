@@ -53,10 +53,8 @@ class TestModelStatus:
 class TestMetrics:
     """Prometheus 메트릭 노출 확인"""
 
-    def test_metrics_endpoint(self, triton_url):
+    def test_metrics_endpoint(self, triton_metrics_url):
         """메트릭 엔드포인트 접근 가능"""
-        # 메트릭은 8002 포트이지만, URL에서 포트 추출
-        metrics_url = triton_url.replace(":8000", ":8002")
-        response = requests.get(f"{metrics_url}/metrics", timeout=10)
+        response = requests.get(f"{triton_metrics_url}/metrics", timeout=10)
         assert response.status_code == 200
         assert "nv_inference" in response.text or "# HELP" in response.text

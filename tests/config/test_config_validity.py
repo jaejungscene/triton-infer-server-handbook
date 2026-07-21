@@ -42,8 +42,7 @@ class TestConfigFiles:
         configs = self._find_configs(models_dir)
         assert len(configs) > 0, "No config.pbtxt files found"
 
-    @pytest.mark.parametrize("required_field", ["backend", "platform"])
-    def test_configs_have_backend_or_platform(self, models_dir, required_field):
+    def test_configs_have_backend_or_platform(self, models_dir):
         """모든 config.pbtxt에 backend 또는 platform이 정의됨"""
         configs = self._find_configs(models_dir)
         for config_path in configs:

@@ -5,6 +5,7 @@ Triton 서버 URL, 공용 클라이언트 인스턴스 등을 제공합니다.
 """
 
 import os
+from urllib.parse import urlsplit, urlunsplit
 
 import pytest
 
@@ -22,6 +23,24 @@ def pytest_addoption(parser):
         default=os.getenv("TRITON_GRPC_URL", "localhost:8001"),
         help="Triton gRPC endpoint URL",
     )
+    parser.addoption(
+        "--triton-metrics-url",
+        action="store",
+        default=os.getenv("TRITON_METRICS_URL"),
+        help="Triton Prometheus metrics endpoint URL",
+    )
+
+
+def _derive_metrics_url(http_url):
+    parsed = urlsplit(http_url)
+    host = parsed.hostname or "localhost"
+    netloc = f"{host}:8002"
+    if parsed.username:
+        auth = parsed.username
+        if parsed.password:
+            auth = f"{auth}:{parsed.password}"
+        netloc = f"{auth}@{netloc}"
+    return urlunsplit((parsed.scheme or "http", netloc, "", "", ""))
 
 
 @pytest.fixture(scope="session")
@@ -32,6 +51,11 @@ def triton_url(request):
 @pytest.fixture(scope="session")
 def triton_grpc_url(request):
     return request.config.getoption("--triton-grpc-url")
+
+
+@pytest.fixture(scope="session")
+def triton_metrics_url(request, triton_url):
+    return request.config.getoption("--triton-metrics-url") or _derive_metrics_url(triton_url)
 
 
 @pytest.fixture(scope="session")
