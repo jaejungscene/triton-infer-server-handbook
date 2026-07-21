@@ -38,7 +38,7 @@ PY
     fi
 
     # 2. Check for input/output definitions (except ensemble)
-    if ! grep -q 'platform:\s*"ensemble"' "${config_file}"; then
+    if ! grep -qE '^\s*platform\s*:\s*"ensemble"' "${config_file}"; then
         if ! grep -qE '^\s*input\s*\[' "${config_file}"; then
             echo "  WARN  [${relative}]: No 'input' definition found"
         fi
@@ -48,16 +48,16 @@ PY
     fi
 
     # 3. Check for balanced brackets
-    open_brackets=$(grep -o '\[' "${config_file}" | wc -l)
-    close_brackets=$(grep -o '\]' "${config_file}" | wc -l)
+    open_brackets=$(grep -o '\[' "${config_file}" 2>/dev/null | wc -l || true)
+    close_brackets=$(grep -o '\]' "${config_file}" 2>/dev/null | wc -l || true)
     if [[ "${open_brackets}" -ne "${close_brackets}" ]]; then
         echo "  ERROR [${relative}]: Unbalanced brackets ([ ${open_brackets} vs ] ${close_brackets})"
         errors=$((errors + 1))
         continue
     fi
 
-    open_braces=$(grep -o '{' "${config_file}" | wc -l)
-    close_braces=$(grep -o '}' "${config_file}" | wc -l)
+    open_braces=$(grep -o '{' "${config_file}" 2>/dev/null | wc -l || true)
+    close_braces=$(grep -o '}' "${config_file}" 2>/dev/null | wc -l || true)
     if [[ "${open_braces}" -ne "${close_braces}" ]]; then
         echo "  ERROR [${relative}]: Unbalanced braces ({ ${open_braces} vs } ${close_braces})"
         errors=$((errors + 1))

@@ -12,9 +12,9 @@ MODEL_NAME="${1:?Usage: $0 <model_name> [base_url]}"
 BASE_URL="${2:-http://localhost:8000}"
 
 echo "[unload] Unloading model: ${MODEL_NAME}"
-response=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v2/repository/models/${MODEL_NAME}/unload")
+response=$(curl -sS -w "\n%{http_code}" -X POST "${BASE_URL}/v2/repository/models/${MODEL_NAME}/unload")
 http_code=$(echo "${response}" | tail -1)
-body=$(echo "${response}" | head -n -1)
+body=$(printf '%s\n' "${response}" | sed '$d')
 
 if [[ "${http_code}" == "200" ]]; then
     echo "[unload] OK: ${MODEL_NAME} unloaded successfully"

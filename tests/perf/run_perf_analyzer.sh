@@ -21,6 +21,10 @@ while [[ $# -gt 0 ]]; do
         --model)       MODEL="$2"; shift 2 ;;
         --concurrency) CONCURRENCY="$2"; shift 2 ;;
         --url)         TRITON_URL="$2"; shift 2 ;;
+        --help|-h)
+            echo "Usage: $0 [--model <name>] [--concurrency 1:8] [--url localhost:8000]"
+            exit 0
+            ;;
         *) echo "Unknown: $1"; exit 1 ;;
     esac
 done
@@ -29,10 +33,17 @@ mkdir -p "${RESULTS_DIR}"
 
 if ! command -v perf_analyzer &>/dev/null; then
     echo "ERROR: perf_analyzer not found. Install from Triton client SDK."
-    echo "  pip install tritonclient[all]"
+    echo "  python -m pip install -r requirements-integration.txt"
     echo "  or run inside Triton SDK container"
     exit 1
 fi
+
+HTTP_URL="${TRITON_URL}"
+if [[ "${HTTP_URL}" != http://* && "${HTTP_URL}" != https://* ]]; then
+    HTTP_URL="http://${HTTP_URL}"
+fi
+PERF_URL="${TRITON_URL#http://}"
+PERF_URL="${PERF_URL#https://}"
 
 run_perf() {
     local model_name="$1"
@@ -42,7 +53,7 @@ run_perf() {
 
     perf_analyzer \
         -m "${model_name}" \
-        -u "${TRITON_URL}" \
+        -u "${PERF_URL}" \
         --percentile=95 \
         --concurrency-range="${CONCURRENCY}" \
         --measurement-interval=10000 \
@@ -56,7 +67,7 @@ if [[ -n "${MODEL}" ]]; then
     run_perf "${MODEL}"
 else
     # 로드된 모델 목록 가져오기
-    models=$(curl -sf "http://${TRITON_URL}/v2/models" 2>/dev/null | python3 -c "
+    models=$(curl -sf "${HTTP_URL}/v2/models" 2>/dev/null | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for m in data.get('models', []):

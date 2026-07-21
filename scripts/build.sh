@@ -9,9 +9,8 @@
 #
 # 이 스크립트가 하는 일:
 #   1. models/serving/manifest.yaml 읽기
-#   2. source → target 매핑에 따라 model_repository/ 에 심볼릭 링크 또는 복사
-#   3. 환경변수 치환 (${VAR} → 실제 값)
-#   4. 권한 설정
+#   2. source → target 매핑에 따라 model_repository/ 에 복사
+#   3. enabled=false 모델과 tag 필터 미일치 모델 제외
 # =============================================================================
 
 set -euo pipefail
