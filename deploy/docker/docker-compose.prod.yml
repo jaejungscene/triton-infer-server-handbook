@@ -43,7 +43,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:8.6.4-alpine
     container_name: triton-redis
     profiles: ["redis-cache"]
     ports:
@@ -58,7 +58,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.13.0
     container_name: triton-prometheus
     ports:
       - "9090:9090"
@@ -69,7 +69,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.0.3
     container_name: triton-grafana
     ports:
       - "3000:3000"
