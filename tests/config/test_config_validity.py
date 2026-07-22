@@ -157,3 +157,67 @@ class TestManifest:
                 os.path.exists(os.path.join(source_path, candidate))
                 for candidate in payload_candidates
             ), f"Enabled model {model['target']} has no runtime payload"
+
+
+@pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
+class TestDeploymentRuntimeArgs:
+    """Helm/Kustomize가 Triton 서버를 실행 가능한 인자로 렌더링하는지 검사"""
+
+    def _load_yaml(self, path):
+        with open(path) as f:
+            return yaml.safe_load(f)
+
+    def test_helm_values_start_with_tritonserver(self, project_root):
+        values_dir = os.path.join(project_root, "deploy", "helm", "triton")
+        for filename in (
+            "values.yaml",
+            "values.dev.yaml",
+            "values.staging.yaml",
+            "values.prod.yaml",
+        ):
+            values = self._load_yaml(os.path.join(values_dir, filename))
+            args = values.get("tritonArgs", [])
+
+            assert args, f"{filename} has no tritonArgs"
+            assert args[0] == "tritonserver", \
+                f"{filename} must keep tritonserver as the first Kubernetes arg"
+            assert "--model-repository=/models" in args, \
+                f"{filename} must set the model repository"
+            assert "--allow-metrics=true" in args, \
+                f"{filename} must expose Prometheus metrics"
+
+    def test_kustomize_env_overlays_patch_runtime_args(self, project_root):
+        overlay_expectations = {
+            "dev": {"--model-control-mode=poll"},
+            "staging": {"--model-control-mode=explicit"},
+            "prod": {
+                "--model-control-mode=explicit",
+                "--cache-config=local,size=67108864",
+                "--rate-limit=execution_count",
+            },
+            "multi-gpu": {"--model-control-mode=explicit"},
+            "multi-node": {"--model-control-mode=explicit"},
+        }
+        overlays_dir = os.path.join(project_root, "deploy", "k8s", "overlays")
+
+        for overlay, expected_args in overlay_expectations.items():
+            kustomization_path = os.path.join(overlays_dir, overlay, "kustomization.yaml")
+            kustomization = self._load_yaml(kustomization_path)
+            patch_paths = {
+                patch["path"]
+                for patch in kustomization.get("patches", [])
+                if isinstance(patch, dict) and "path" in patch
+            }
+            assert "triton_args_patch.yaml" in patch_paths, \
+                f"{overlay} overlay must patch Triton runtime args"
+
+            patch_path = os.path.join(overlays_dir, overlay, "triton_args_patch.yaml")
+            patch = self._load_yaml(patch_path)
+            args = patch["spec"]["template"]["spec"]["containers"][0]["args"]
+
+            assert args[0] == "tritonserver", \
+                f"{overlay} overlay must keep tritonserver as the first arg"
+            assert "--model-repository=/models" in args, \
+                f"{overlay} overlay must set the model repository"
+            assert expected_args.issubset(set(args)), \
+                f"{overlay} overlay missing expected args: {expected_args - set(args)}"
