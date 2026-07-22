@@ -16,6 +16,9 @@ on:
       - 'scripts/**'
       - 'client/**'
       - 'tests/**'
+      - 'deploy/**'
+      - '.github/**'
+      - 'requirements*.txt'
 
 jobs:
   validate-configs:
@@ -31,8 +34,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          pip install -r requirements-dev.txt
+        run: python -m pip install -r requirements-dev.txt
 
       - name: Validate config.pbtxt files
         run: ./scripts/validate.sh
@@ -53,7 +55,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install ruff
-        run: pip install -r requirements-dev.txt
+        run: python -m pip install -r requirements-dev.txt
 
       - name: Lint model.py files
         run: |

@@ -95,4 +95,6 @@ class TritonGRPCClient(BaseTritonClient):
             np.uint8: "UINT8",
             np.bool_: "BOOL",
         }
-        return mapping.get(dtype.type, "FP32")
+        if dtype.type not in mapping:
+            raise ValueError(f"Unsupported NumPy dtype for Triton inference: {dtype}")
+        return mapping[dtype.type]

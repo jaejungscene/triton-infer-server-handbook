@@ -17,14 +17,19 @@ configs/
 └── repository/       # 클라우드 모델 저장소 (S3/GCS/Azure)
 ```
 
-## 사용법
+## 사용법과 역할
 
-`scripts/build.sh`가 환경에 맞게 설정 파일들을 합성합니다:
+`configs/*.txt`는 Triton 서버 인자를 환경별/기능별로 설명하는 운영 기준 파일입니다.
+현재 `scripts/build.sh`는 모델 repository를 생성하며, 이 설정 파일들을 자동 합성하지는
+않습니다. 실제 서버 기동 인자는 아래 위치에 반영합니다.
 
-```bash
-# 합성 순서: base.txt → {env}.txt → 선택 모듈들
-./scripts/build.sh --env prod --tls --tracing otel --cache local
-```
+| 실행 방식 | 설정 위치 |
+|-----------|-----------|
+| Docker dev/prod | `deploy/docker/docker-compose*.yml` |
+| Helm | `deploy/helm/triton/values*.yaml` |
+| Kustomize | `deploy/k8s/base`, `deploy/k8s/overlays/*` |
+
+값을 바꿀 때는 `configs/*.txt`와 실제 배포 설정을 함께 갱신합니다.
 
 ## 운영 판단 기준
 

@@ -1,0 +1,51 @@
+# Git and local metadata
+.git
+.github
+.DS_Store
+.vscode
+.idea
+
+# Python local state
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+htmlcov
+.coverage
+
+# Runtime/build artifacts
+model_repository/*
+!model_repository/.gitkeep
+tests/perf/results
+*.log
+trace_output
+*.trace.json
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+*.csr
+kubeconfig
+*.kubeconfig
+
+# Model artifacts should come from an artifact store or CI step.
+*.plan
+*.onnx
+*.pt
+*.pth
+*.savedmodel
+*.tflite
+*.bin
+*.engine
+*.xgboost
+*.lgbm
+*.pkl
+*.joblib

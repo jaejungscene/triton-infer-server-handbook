@@ -1,7 +1,7 @@
 """
 test_smoke.py — 배포 직후 빠른 정상 확인
 
-서버가 살아있는지, 모델이 로드되었는지, 기본 추론이 되는지 확인합니다.
+서버가 살아있는지, 모델이 로드되었는지, metrics가 노출되는지 확인합니다.
 """
 
 import requests
@@ -53,10 +53,8 @@ class TestModelStatus:
 class TestMetrics:
     """Prometheus 메트릭 노출 확인"""
 
-    def test_metrics_endpoint(self, triton_url):
+    def test_metrics_endpoint(self, triton_metrics_url):
         """메트릭 엔드포인트 접근 가능"""
-        # 메트릭은 8002 포트이지만, URL에서 포트 추출
-        metrics_url = triton_url.replace(":8000", ":8002")
-        response = requests.get(f"{metrics_url}/metrics", timeout=10)
+        response = requests.get(f"{triton_metrics_url}/metrics", timeout=10)
         assert response.status_code == 200
         assert "nv_inference" in response.text or "# HELP" in response.text

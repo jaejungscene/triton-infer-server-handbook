@@ -37,11 +37,11 @@ class TritonAsyncClient:
         self._sync_client = TritonGRPCClient(self.config)
 
     async def is_server_ready(self) -> bool:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._sync_client.is_server_ready)
 
     async def is_model_ready(self, model_name: str, model_version: str = "") -> bool:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, partial(self._sync_client.is_model_ready, model_name, model_version))
 
     async def infer_numpy(
@@ -52,7 +52,7 @@ class TritonAsyncClient:
         model_version: str = "",
     ) -> dict[str, np.ndarray]:
         """비동기 NumPy 추론"""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
             partial(
