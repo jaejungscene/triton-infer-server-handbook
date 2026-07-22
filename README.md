@@ -171,7 +171,7 @@ triton-inference-server/
 │
 ├── monitoring/                          # 메트릭·트레이싱·알림
 │   ├── prometheus/
-│   │   ├── scrape_config.yml            # triton-server:8002/metrics 스크랩 설정
+│   │   ├── scrape_config.yml            # Compose 서비스 triton:8002/metrics 스크랩 설정
 │   │   └── triton_rules.yml             # 알림 규칙 (latency, error rate, GPU 사용률 등)
 │   ├── grafana/
 │   │   └── triton_dashboard.json        # 사전 구성된 Grafana 대시보드
