@@ -36,7 +36,7 @@ jobs:
       - name: Update image tag
         run: |
           cd deploy/k8s/overlays/staging
-          kustomize edit set image nvcr.io/nvidia/tritonserver=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          kustomize edit set image nvcr.io/nvidia/tritonserver=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.workflow_run.head_sha }}
 
       - name: Deploy to staging
         run: |
@@ -72,7 +72,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "✅ Staging deployment successful\nCommit: ${{ github.sha }}\nBranch: ${{ github.ref_name }}"
+              "text": "✅ Staging deployment successful\nCommit: ${{ github.event.workflow_run.head_sha }}\nBranch: ${{ github.event.workflow_run.head_branch }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -83,7 +83,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "❌ Staging deployment FAILED\nCommit: ${{ github.sha }}\nBranch: ${{ github.ref_name }}"
+              "text": "❌ Staging deployment FAILED\nCommit: ${{ github.event.workflow_run.head_sha }}\nBranch: ${{ github.event.workflow_run.head_branch }}"
             }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

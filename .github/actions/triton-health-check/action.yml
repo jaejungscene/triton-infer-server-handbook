@@ -17,6 +17,10 @@ inputs:
     description: Maximum wait time in seconds
     required: false
     default: "120"
+  container-name:
+    description: Optional Docker container name to dump logs from on failure
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -43,6 +47,7 @@ runs:
         done
 
         echo "ERROR: Triton server did not become ready within ${TIMEOUT}s"
-        # Show server logs for debugging
-        docker logs triton-test 2>&1 | tail -50 || true
+        if [[ -n "${{ inputs.container-name }}" ]]; then
+          docker logs "${{ inputs.container-name }}" 2>&1 | tail -50 || true
+        fi
         exit 1

@@ -55,6 +55,7 @@ jobs:
         with:
           url: http://localhost:8000
           timeout: 180
+          container-name: triton-perf
 
       - name: Run perf_analyzer
         run: |
