@@ -19,21 +19,23 @@ Shared Memory Client — CPU/CUDA 공유 메모리 클라이언트
     from client.shared_memory_client import TritonSHMClient, TritonConfig
 
     config = TritonConfig(url="localhost:8000")
-    client = TritonSHMClient(config, use_cuda=False)
-
-    result = client.infer_with_shm(
-        model_name="resnet50",
-        input_data={"input": numpy_array},
-        output_names=["output"],
-        output_shapes={"output": (1, 1000)},
-        output_dtypes={"output": np.float32},
-    )
-    client.cleanup()
+    with TritonSHMClient(config, use_cuda=False) as client:
+        result = client.infer_with_shm(
+            model_name="resnet50",
+            input_data={"input": numpy_array},
+            output_names=["output"],
+            output_shapes={"output": (1, 1000)},
+            output_dtypes={"output": np.float32},
+        )
 """
+
+import logging
 
 import numpy as np
 
 from .base import TritonConfig
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class TritonSHMClient:
@@ -61,6 +63,7 @@ class TritonSHMClient:
             self._shm = cpu_shm
 
         self._registered_regions: list[str] = []
+        self._region_handles: dict[str, object] = {}
 
     def infer_with_shm(
         self,
@@ -96,6 +99,7 @@ class TritonSHMClient:
                 self._client.register_system_shared_memory(region_name, f"/{region_name}", byte_size)
 
             self._registered_regions.append(region_name)
+            self._region_handles[region_name] = shm_handle
 
             # Input 구성
             inp = self._httpclient.InferInput(name, list(data.shape), self._numpy_to_triton_dtype(data.dtype))
@@ -117,6 +121,7 @@ class TritonSHMClient:
                 self._client.register_system_shared_memory(region_name, f"/{region_name}", byte_size)
 
             self._registered_regions.append(region_name)
+            self._region_handles[region_name] = shm_handle
 
             out = self._httpclient.InferRequestedOutput(name)
             out.set_shared_memory(region_name, byte_size)
@@ -140,19 +145,51 @@ class TritonSHMClient:
                     self._client.unregister_cuda_shared_memory(region_name)
                 else:
                     self._client.unregister_system_shared_memory(region_name)
-            except Exception:
-                pass
+            except Exception as exc:
+                _LOGGER.debug("Failed to unregister shared memory region %s: %s", region_name, exc)
+
+            shm_handle = self._region_handles.get(region_name)
+            if shm_handle is None:
+                continue
+
+            try:
+                self._shm.destroy_shared_memory_region(shm_handle)
+            except Exception as exc:
+                _LOGGER.debug("Failed to destroy shared memory region %s: %s", region_name, exc)
 
         self._registered_regions.clear()
+        self._region_handles.clear()
 
-        # 전체 정리 (안전장치)
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+        return False
+
+    def close(self):
+        """SHM 영역과 Triton HTTP client를 정리"""
+        self.cleanup()
+        if self._client and hasattr(self._client, "close"):
+            try:
+                self._client.close()
+            except Exception as close_exc:
+                _LOGGER.debug("Failed to close Triton shared memory client: %s", close_exc)
+
+    def __del__(self):
         try:
-            if self.use_cuda:
+            self.close()
+        except Exception as exc:
+            _LOGGER.debug("Failed to clean up Triton shared memory client: %s", exc)
+
+    def cleanup_all(self):
+        """현재 프로세스가 가진 모든 SHM 영역을 정리하는 수동 복구 도구"""
+        self.cleanup()
+        try:
+            if hasattr(self._shm, "destroy_shared_memory_region_all"):
                 self._shm.destroy_shared_memory_region_all()
-            else:
-                self._shm.destroy_shared_memory_region_all()
-        except Exception:
-            pass
+        except Exception as exc:
+            _LOGGER.debug("Failed to destroy all shared memory regions: %s", exc)
 
     @staticmethod
     def _numpy_to_triton_dtype(dtype: np.dtype) -> str:
@@ -166,6 +203,3 @@ class TritonSHMClient:
         if dtype.type not in mapping:
             raise ValueError(f"Unsupported NumPy dtype for Triton shared memory inference: {dtype}")
         return mapping[dtype.type]
-
-    def __del__(self):
-        self.cleanup()
