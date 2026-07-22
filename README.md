@@ -216,9 +216,9 @@ triton-inference-server/
 
 | 문서 | 내용 |
 |------|------|
-| [Architecture](docs/architecture.md) | 요청 처리 경로, 모델 레포지토리 전략, serving 패턴, 관측성 |
-| [Production Adoption](docs/production-adoption.md) | production 도입 단계, release checklist, rollback 기준 |
-| [Practical Scenarios](docs/scenarios.md) | 단일 모델, ensemble, GPU OOM, cache, LLM streaming, release 시나리오 |
+| [Triton 서빙 아키텍처](docs/architecture.md) | 요청 처리 경로, 모델 레포지토리 전략, serving 패턴, 관측성 |
+| [Production 도입 가이드](docs/production-adoption.md) | production 도입 단계, release checklist, rollback 기준 |
+| [실무 시나리오](docs/scenarios.md) | 단일 모델, ensemble, GPU OOM, cache, LLM streaming, release 시나리오 |
 
 핵심 운영 원칙은 단순합니다.
 

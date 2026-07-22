@@ -1,9 +1,9 @@
-# Practical Scenarios
+# 실무 시나리오
 
 이 문서는 이 저장소를 공부하거나 실무에 적용할 때 따라갈 수 있는 짧은 시나리오입니다.
 각 시나리오는 "언제 필요한가", "무엇을 바꾸나", "어떻게 확인하나"를 기준으로 봅니다.
 
-## Scenario 1. 단일 ONNX 모델을 서빙한다
+## 시나리오 1. 단일 ONNX 모델을 서빙한다
 
 상황:
 이미 학습된 classifier가 있고 online API에서 낮은 latency로 호출해야 합니다.
@@ -27,7 +27,7 @@
 `max_batch_size > 0`이면 input shape에 batch 차원을 제외한 shape만 적습니다. 클라이언트
 요청에는 batch 차원이 포함됩니다.
 
-## Scenario 2. 전처리와 후처리를 서버 안으로 넣는다
+## 시나리오 2. 전처리와 후처리를 서버 안으로 넣는다
 
 상황:
 클라이언트마다 이미지 resize, normalize, NMS 구현이 달라서 결과가 흔들립니다.
@@ -55,7 +55,7 @@
 Ensemble model 자체는 실제 compute를 하지 않습니다. 병목은 구성 모델의 scheduler, backend,
 CPU/GPU 자원에서 발생합니다.
 
-## Scenario 3. GPU OOM을 줄인다
+## 시나리오 3. GPU OOM을 줄인다
 
 상황:
 여러 모델을 한 GPU에 올렸더니 peak traffic에서 OOM이 발생합니다.
@@ -77,7 +77,7 @@ CPU/GPU 자원에서 발생합니다.
 Rate limiter는 OOM을 줄일 수 있지만 queue time과 tail latency를 늘릴 수 있습니다. latency
 SLO가 엄격한 모델은 별도 GPU 또는 별도 deployment로 분리하는 편이 낫습니다.
 
-## Scenario 4. 반복 요청을 캐싱한다
+## 시나리오 4. 반복 요청을 캐싱한다
 
 상황:
 동일한 feature vector나 이미지 hash에 대해 같은 모델을 자주 호출합니다.
@@ -99,7 +99,7 @@ SLO가 엄격한 모델은 별도 GPU 또는 별도 deployment로 분리하는 �
 모델명, 버전, input tensor name/shape/dtype/data가 cache key에 포함됩니다. 같은 의미의 입력이라도
 shape이나 dtype이 다르면 hit가 나지 않습니다.
 
-## Scenario 5. LLM token streaming을 제공한다
+## 시나리오 5. LLM token streaming을 제공한다
 
 상황:
 사용자가 긴 답변 생성을 기다리지 않고 token 단위로 받게 하고 싶습니다.
@@ -121,14 +121,14 @@ shape이나 dtype이 다르면 hit가 나지 않습니다.
 Decoupled 모델은 요청 1개에 0개, 1개, 여러 개의 응답을 보낼 수 있습니다. downstream은 일반
 request/response 모델과 다르게 설계해야 합니다.
 
-## Scenario 6. Production release를 수행한다
+## 시나리오 6. Production release를 수행한다
 
 상황:
 staging 검증이 끝난 새 모델 revision을 production에 반영합니다.
 
 작업:
 
-1. model artifact revision과 container image tag를 고정합니다.
+1. model artifact revision과 container image tag를 고정합니다. `latest`나 mutable tag는 사용하지 않습니다.
 2. Helm values 또는 Kustomize overlay에 image tag를 반영합니다.
 3. production은 `explicit` 모드로 기동합니다.
 4. 배포 직후 smoke test와 metrics 확인을 수행합니다.

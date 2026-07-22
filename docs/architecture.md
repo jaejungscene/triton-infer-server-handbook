@@ -1,4 +1,4 @@
-# Triton Serving Architecture
+# Triton 서빙 아키텍처
 
 이 문서는 이 저장소가 가정하는 Triton Inference Server 운영 구조를 설명합니다. 목표는
 "로컬에서 모델을 띄워본다"가 아니라, 팀이 여러 모델을 안정적으로 배포하고 관측하며
@@ -24,9 +24,9 @@ flowchart LR
 
 | 단위 | 위치 | 역할 |
 |------|------|------|
-| Model source | `models/serving/**` | Git으로 관리하는 모델 설정, Python backend 코드, manifest |
-| Model repository | `model_repository/` | Triton이 실제로 읽는 런타임 디렉토리. CI/CD 또는 `scripts/build.sh`가 생성 |
-| Server runtime | `deploy/**`, `configs/**` | Docker, Helm, Kustomize, 서버 인자, 운영별 차이 |
+| 모델 소스 | `models/serving/**` | Git으로 관리하는 모델 설정, Python backend 코드, manifest |
+| 모델 레포지토리 | `model_repository/` | Triton이 실제로 읽는 런타임 디렉토리. CI/CD 또는 `scripts/build.sh`가 생성 |
+| 서버 런타임 | `deploy/**`, `configs/**` | Docker, Helm, Kustomize, 서버 인자, 운영별 차이 |
 
 ## 요청 처리 경로
 

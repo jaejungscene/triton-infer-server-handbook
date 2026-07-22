@@ -1,4 +1,4 @@
-# Production Adoption Guide
+# Production 도입 가이드
 
 이 문서는 이 저장소를 실제 production serving에 도입할 때의 결정 순서와 운영 기준을
 정리합니다. 모든 팀이 처음부터 전체 구성을 쓸 필요는 없습니다. 아래 maturity 단계를
@@ -39,6 +39,7 @@
 | probes | live/ready 분리 | 시작 지연과 실제 장애를 분리 |
 | replicas | 최소 2개 이상 | rolling update와 node 장애 대응 |
 | PDB | prod에서 활성화 | voluntary disruption 중 가용성 보호 |
+| image tag | digest 또는 명시 버전 | 재배포 시 다른 이미지가 내려오는 사고 방지 |
 
 ## 배포 흐름
 
@@ -107,7 +108,8 @@ Rollback 기준:
 - Docker dev: `deploy/docker/docker-compose.yml`
 - Docker prod: `deploy/docker/docker-compose.prod.yml`
 - Helm: `deploy/helm/triton/values*.yaml`
-- Kustomize: `deploy/k8s/base`, `deploy/k8s/overlays/*`
+- Kustomize base: `deploy/k8s/base/deployment.yaml`
+- Kustomize overlay: `deploy/k8s/overlays/*/triton_args_patch.yaml`
 
 ## 참고 문서
 
