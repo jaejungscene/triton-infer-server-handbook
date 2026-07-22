@@ -8,6 +8,7 @@
 replicaCount: 3
 
 tritonArgs:
+  - tritonserver
   - --model-repository=/models
   - --strict-model-config=true
   - --allow-metrics=true

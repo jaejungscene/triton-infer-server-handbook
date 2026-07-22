@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton-server
+spec:
+  template:
+    spec:
+      containers:
+        - name: triton
+          args:
+            - tritonserver
+            - --model-repository=/models
+            - --strict-model-config=true
+            - --allow-metrics=true
+            - --allow-gpu-metrics=true
+            - --model-control-mode=explicit
+            - --log-verbose=0
+            - --http-thread-count=8
+            - --grpc-infer-thread-count=8
+            - --cache-config=local,size=67108864
+            - --rate-limit=execution_count

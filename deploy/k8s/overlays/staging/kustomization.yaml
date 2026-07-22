@@ -9,3 +9,4 @@ resources:
 
 patches:
   - path: replica_patch.yaml
+  - path: triton_args_patch.yaml

@@ -7,7 +7,6 @@ k8s/
 ├── base/                # 공통 리소스 (Kustomize base)
 │   ├── deployment.yaml  # Triton Deployment (GPU tolerations, resource limits)
 │   ├── service.yaml     # ClusterIP (HTTP 8000, gRPC 8001, metrics 8002)
-│   ├── configmap.yaml   # 운영 인자 참고용 ConfigMap
 │   ├── pvc.yaml         # model_repository PVC
 │   └── kustomization.yaml
 └── overlays/
@@ -43,3 +42,14 @@ kubectl port-forward -n production svc/triton-server 8000:8000 8001:8001 8002:80
 | PVC | ReadWriteMany | 여러 pod이 같은 모델 공유 |
 | GPU 스케줄링 | tolerations + nodeSelector | GPU 노드에만 배치 |
 | 스케일링 | HPA (GPU utilization) | GPU 사용률 기반 자동 스케일링 |
+
+## 환경별 Triton 인자
+
+Kustomize는 base Deployment의 기본 인자를 환경별 overlay patch로 교체합니다.
+Helm도 동일하게 `values*.yaml`의 `tritonArgs`로 실행 인자를 주입합니다.
+
+| 환경 | 핵심 인자 | 목적 |
+|------|-----------|------|
+| dev | `--model-control-mode=poll`, `--repository-poll-secs=5` | 모델 수정 후 빠른 재로드 |
+| staging | `--model-control-mode=explicit`, `--log-verbose=1` | 운영과 같은 로드 정책으로 검증 |
+| prod | explicit, cache, rate-limit, thread count | 예측 가능한 배포와 처리량 튜닝 |

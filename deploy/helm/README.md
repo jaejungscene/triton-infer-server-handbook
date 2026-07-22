@@ -36,9 +36,13 @@ helm upgrade --install triton deploy/helm/triton \
 
 | 파일 | replicas | 모델 제어 | HPA | PDB | 설명 |
 |------|----------|-----------|-----|-----|------|
-| `values.dev.yaml` | 1 | poll (파일 감지) | ❌ | ❌ | 개발용, verbose 로그 |
-| `values.staging.yaml` | 2 | explicit | ❌ | ✅ (min 1) | 스테이징 |
-| `values.prod.yaml` | 3 | explicit + 캐시 | ✅ (3~10) | ✅ (min 2) | 프로덕션 |
+| `values.dev.yaml` | 1 | poll (파일 감지) | 없음 | 없음 | 개발용, verbose 로그 |
+| `values.staging.yaml` | 2 | explicit | 없음 | 사용 (min 1) | 스테이징 |
+| `values.prod.yaml` | 3 | explicit + 캐시 | 사용 (3~10) | 사용 (min 2) | 프로덕션 |
+
+`tritonArgs`는 Kubernetes `args`에 그대로 렌더링됩니다. 따라서 첫 항목은
+`tritonserver`여야 하며, 그 뒤에 `--model-repository=/models` 같은 서버 플래그를
+나열합니다.
 
 ## 주요 배포 명령어
 
