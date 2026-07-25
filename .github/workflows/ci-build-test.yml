@@ -26,6 +26,10 @@ jobs:
   build-and-test:
     name: Build & Smoke Test
     runs-on: [self-hosted, gpu]  # GPU self-hosted runner
+    timeout-minutes: 60
+    concurrency:
+      group: ci-build-test-${{ github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
@@ -109,7 +113,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=sha,prefix=
+            type=sha,format=long,prefix=
             type=ref,event=branch
             type=raw,value=latest,enable={{is_default_branch}}
 

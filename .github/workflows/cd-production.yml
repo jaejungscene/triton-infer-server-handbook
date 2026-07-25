@@ -11,9 +11,8 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: 'Docker image tag to deploy (commit SHA or "latest")'
+        description: 'Immutable 40-character Git commit SHA to deploy'
         required: true
-        default: 'latest'
       rollback:
         description: 'Rollback to previous version'
         type: boolean
@@ -23,14 +22,29 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
 jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: production  # ★ 수동 승인 필수 (GitHub Settings → Environments)
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Setup kustomize
         uses: imranismail/setup-kustomize@v2
@@ -41,7 +55,20 @@ jobs:
       - name: Configure kubeconfig
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG_PROD }}" | base64 -d > ~/.kube/config
+          umask 077
+          printf '%s' "${KUBE_CONFIG_PROD}" | base64 -d > ~/.kube/config
+        env:
+          KUBE_CONFIG_PROD: ${{ secrets.KUBE_CONFIG_PROD }}
+
+      - name: Validate image tag
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        run: |
+          if [[ ! "${IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "image_tag must be the full 40-character Git commit SHA" >&2
+            exit 1
+          fi
+        env:
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
 
       # ── Rollback 처리 ──
       - name: Rollback (if requested)
@@ -54,16 +81,19 @@ jobs:
 
       # ── 신규 배포 ──
       - name: Deploy new version
+        id: deploy
         if: ${{ github.event.inputs.rollback != 'true' }}
         run: |
-          IMAGE_TAG="${{ github.event.inputs.image_tag }}"
           echo "Deploying image tag: ${IMAGE_TAG}"
 
           cd deploy/k8s/overlays/prod
           kustomize edit set image nvcr.io/nvidia/tritonserver=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
 
           kustomize build . | kubectl apply -f -
+          echo "applied=true" >> "${GITHUB_OUTPUT}"
           kubectl rollout status deployment/triton-server -n production --timeout=600s
+        env:
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
 
       # ── Post-deploy 검증 ──
       - name: Smoke test
@@ -93,19 +123,17 @@ jobs:
 
       # ── 자동 롤백 (smoke test 실패 시) ──
       - name: Auto-rollback on failure
-        if: failure()
+        if: failure() && steps.deploy.outputs.applied == 'true'
         run: |
           echo "Deployment verification failed — rolling back!"
           kubectl rollout undo deployment/triton-server -n production
           kubectl rollout status deployment/triton-server -n production --timeout=300s
 
       - name: Notify
-        if: always()
+        if: always() && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.25.0
         with:
           payload: |
             {
               "text": "${{ job.status == 'success' && '✅' || '❌' }} Production deployment ${{ job.status }}\nTag: ${{ github.event.inputs.image_tag }}\nBy: ${{ github.actor }}"
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

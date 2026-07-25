@@ -6,6 +6,13 @@
 
 name: CD - Staging
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
 on:
   workflow_run:
     workflows: ["CI - Build & Test"]
@@ -16,11 +23,23 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     environment: staging
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: Setup kustomize
         uses: imranismail/setup-kustomize@v2
@@ -31,7 +50,10 @@ jobs:
       - name: Configure kubeconfig
         run: |
           mkdir -p ~/.kube
-          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          umask 077
+          printf '%s' "${KUBE_CONFIG_STAGING}" | base64 -d > ~/.kube/config
+        env:
+          KUBE_CONFIG_STAGING: ${{ secrets.KUBE_CONFIG_STAGING }}
 
       - name: Update image tag
         run: |
@@ -67,27 +89,18 @@ jobs:
           exit 1
 
       - name: Notify Slack (success)
-        if: success()
+        if: success() && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.25.0
         with:
           payload: |
             {
               "text": "✅ Staging deployment successful\nCommit: ${{ github.event.workflow_run.head_sha }}\nBranch: ${{ github.event.workflow_run.head_branch }}"
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
       - name: Notify Slack (failure)
-        if: failure()
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
         uses: slackapi/slack-github-action@v1.25.0
         with:
           payload: |
             {
               "text": "❌ Staging deployment FAILED\nCommit: ${{ github.event.workflow_run.head_sha }}\nBranch: ${{ github.event.workflow_run.head_branch }}"
             }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-
-    env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
