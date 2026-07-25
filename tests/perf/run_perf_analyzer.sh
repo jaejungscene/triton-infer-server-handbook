@@ -30,11 +30,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 mkdir -p "${RESULTS_DIR}"
+rm -f "${RESULTS_DIR}"/*_perf.csv "${RESULTS_DIR}"/*_perf.log
 
 if ! command -v perf_analyzer &>/dev/null; then
     echo "ERROR: perf_analyzer not found. Install from Triton client SDK."
-    echo "  python -m pip install -r requirements-integration.txt"
-    echo "  or run inside Triton SDK container"
+    echo "  Run this script inside nvcr.io/nvidia/tritonserver:<version>-py3-sdk."
     exit 1
 fi
 
@@ -66,54 +66,48 @@ run_perf() {
 if [[ -n "${MODEL}" ]]; then
     run_perf "${MODEL}"
 else
-    # 로드된 모델 목록 가져오기
-    models=$(curl -sf "${HTTP_URL}/v2/models" 2>/dev/null | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-for m in data.get('models', []):
-    # ensemble은 구성 모델이 개별 테스트되므로 스킵
-    print(m['name'])
-" 2>/dev/null || echo "")
-
-    if [[ -z "${models}" ]]; then
-        echo "WARNING: No models found or server unreachable"
-        exit 0
+    # Repository Index API에서 ready 모델만 조회
+    if ! models_json=$(curl -sf \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -d '{"ready":true}' \
+        "${HTTP_URL}/v2/repository/index"); then
+        echo "ERROR: Failed to query Triton Repository Index API at ${HTTP_URL}"
+        exit 1
     fi
 
-    for model in ${models}; do
+    models=$(printf '%s' "${models_json}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for name in sorted({m['name'] for m in data if m.get('name')}):
+    print(name)
+")
+
+    if [[ -z "${models}" ]]; then
+        echo "ERROR: Repository Index API returned no ready models"
+        exit 1
+    fi
+
+    while IFS= read -r model; do
         run_perf "${model}"
-    done
+    done <<< "${models}"
 fi
 
 echo "=========================================="
 echo "[perf] Results saved to: ${RESULTS_DIR}/"
 echo "=========================================="
 
-# Baseline 비교 (baseline.json이 존재하면)
-if [[ -f "${BASELINE}" ]]; then
-    echo "[perf] Comparing with baseline..."
-    python3 -c "
-import json, sys, os
-
-with open('${BASELINE}') as f:
-    baseline = json.load(f)
-
-regressions = []
-for model_name, targets in baseline.items():
-    log_file = os.path.join('${RESULTS_DIR}', f'{model_name}_perf.log')
-    if not os.path.exists(log_file):
-        print(f'  SKIP: {model_name} (no results)')
-        continue
-
-    # Simple check: look for throughput in log
-    print(f'  CHECK: {model_name}')
-    print(f'    Baseline throughput: {targets.get(\"min_throughput\", \"N/A\")} infer/sec')
-    print(f'    Baseline p95 latency: {targets.get(\"max_p95_latency_ms\", \"N/A\")} ms')
-
-if regressions:
-    print(f'\\nREGRESSION DETECTED: {len(regressions)} models below baseline')
-    sys.exit(1)
-else:
-    print('\\nAll models within baseline')
-"
+# Baseline 비교
+if [[ ! -f "${BASELINE}" ]]; then
+    echo "ERROR: Performance baseline not found: ${BASELINE}"
+    exit 1
 fi
+
+compare_args=(
+    --baseline "${BASELINE}"
+    --results-dir "${RESULTS_DIR}"
+)
+if [[ -n "${MODEL}" ]]; then
+    compare_args+=(--model "${MODEL}")
+fi
+python3 "${SCRIPT_DIR}/compare_baseline.py" "${compare_args[@]}"

@@ -69,8 +69,14 @@ sequenceDiagram
 - `response_cache`를 켠 모델은 deterministic output인지 확인
 - `instance_group` count와 GPU memory 사용량 확인
 - `scripts/build.sh --env staging --clean` 결과물 확인
-- staging에서 `/v2/models`, `/ready`, `/stats`, `/metrics` 확인
+- staging에서 Repository Index API, `/ready`, `/stats`, `/metrics` 확인
 - perf baseline 대비 latency/throughput 악화 여부 확인
+
+성능 기준선은 동일한 GPU 종류, Triton image, 모델 artifact, 입력 데이터, concurrency에서
+측정해야 합니다. `tests/perf/baseline.json`의 예시 숫자를 그대로 SLO로 사용하지 말고,
+전용 runner에서 여러 차례 측정한 안정 구간의 하한(throughput)과 상한(p95 latency)으로
+교체합니다. `tests/perf/compare_baseline.py`는 `perf_analyzer` CSV를 읽어 이 기준을 실제로
+위반하면 실패 코드를 반환합니다.
 
 배포 후:
 

@@ -34,11 +34,23 @@ pytest tests/integration/ \
   --triton-metrics-url http://localhost:8002
 
 # Performance test
-./tests/perf/run_perf_analyzer.sh
+docker run --rm \
+  --add-host host.docker.internal:host-gateway \
+  -e TRITON_URL=host.docker.internal:8000 \
+  -v "$PWD:/workspace" -w /workspace \
+  nvcr.io/nvidia/tritonserver:24.08-py3-sdk \
+  ./tests/perf/run_perf_analyzer.sh
 ```
 
 `tests/config/`는 Triton 서버가 없어도 실행됩니다. `tests/smoke/`와
 `tests/integration/`은 이미 기동 중인 Triton 서버가 필요합니다.
+
+성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,
+`tests/perf/baseline.json`의 동일 concurrency 기준과 비교합니다. `perf_analyzer`의 latency
+CSV 값은 microsecond이므로 비교기가 millisecond로 변환합니다. 기준값은 GPU 종류, Triton
+버전, 모델 artifact와 입력 데이터에 종속되므로 production 적용 전 전용 runner에서 다시
+측정해 갱신해야 합니다. 기준선에 없는 모델이나 결과가 하나도 없는 실행은 성공으로
+간주하지 않습니다.
 
 ## 환경변수
 
