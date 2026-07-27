@@ -39,6 +39,7 @@ kubectl port-forward -n production svc/triton-server 8000:8000 8001:8001 8002:80
 | 결정 | 선택 | 이유 |
 |------|------|------|
 | Service 타입 | ClusterIP | 클러스터 내부 안정 주소를 제공하고, 외부 노출은 Ingress/LB에서 분리 |
+| Ingress | HTTP/gRPC 리소스 분리 | NGINX의 `backend-protocol` annotation은 Ingress 전체에 적용되므로 8000과 8001을 같은 리소스에 두지 않음 |
 | PVC | ReadWriteMany | 여러 pod이 같은 모델 공유 |
 | GPU 스케줄링 | tolerations + nodeSelector | GPU 노드에만 배치 |
 | 스케일링 | HPA (GPU utilization) | GPU 사용률 기반 자동 스케일링 |

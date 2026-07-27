@@ -10,5 +10,6 @@ resources:
 patches:
   - path: replica_patch.yaml
   - path: resource_patch.yaml
-  - path: ingress_patch.yaml
+  - path: ingress_http_patch.yaml
+  - path: ingress_grpc_patch.yaml
   - path: triton_args_patch.yaml

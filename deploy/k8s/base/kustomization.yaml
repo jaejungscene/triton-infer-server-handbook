@@ -5,7 +5,8 @@ resources:
   - deployment.yaml
   - service.yaml
   - pvc.yaml
-  - ingress.yaml
+  - ingress-http.yaml
+  - ingress-grpc.yaml
 
 labels:
   - includeSelectors: true

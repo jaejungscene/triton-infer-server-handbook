@@ -221,3 +221,23 @@ class TestDeploymentRuntimeArgs:
                 f"{overlay} overlay must set the model repository"
             assert expected_args.issubset(set(args)), \
                 f"{overlay} overlay missing expected args: {expected_args - set(args)}"
+
+    def test_http_and_grpc_use_separate_ingresses(self, project_root):
+        base_dir = os.path.join(project_root, "deploy", "k8s", "base")
+        http_ingress = self._load_yaml(os.path.join(base_dir, "ingress-http.yaml"))
+        grpc_ingress = self._load_yaml(os.path.join(base_dir, "ingress-grpc.yaml"))
+
+        assert "nginx.ingress.kubernetes.io/backend-protocol" not in \
+            http_ingress["metadata"].get("annotations", {})
+        assert grpc_ingress["metadata"]["annotations"][
+            "nginx.ingress.kubernetes.io/backend-protocol"
+        ] == "GRPC"
+
+        http_port = http_ingress["spec"]["rules"][0]["http"]["paths"][0][
+            "backend"
+        ]["service"]["port"]["name"]
+        grpc_port = grpc_ingress["spec"]["rules"][0]["http"]["paths"][0][
+            "backend"
+        ]["service"]["port"]["name"]
+        assert http_port == "http"
+        assert grpc_port == "grpc"
