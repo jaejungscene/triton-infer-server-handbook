@@ -78,6 +78,11 @@ sequenceDiagram
 교체합니다. `tests/perf/compare_baseline.py`는 `perf_analyzer` CSV를 읽어 이 기준을 실제로
 위반하면 실패 코드를 반환합니다.
 
+기본 Triton Prometheus 지연 metric은 histogram이 아니라 누적 counter입니다. 따라서
+Grafana의 운영 대시보드는 `rate(duration_us) / rate(success_count)`로 평균 지연을 표시하고,
+p95/p99는 `perf_analyzer` 또는 trace backend에서 확인합니다. 요청량이 적어도 error ratio가
+왜곡되지 않도록 alert 분모를 임의의 `1`로 올리지 않습니다.
+
 배포 후:
 
 - 5분 동안 error rate, average latency, queue time, GPU memory 확인
