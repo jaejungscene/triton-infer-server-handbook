@@ -1,28 +1,11 @@
-"""
-Streaming Client — gRPC Decoupled Streaming (LLM 토큰 스트리밍)
+"""Reliable gRPC streaming clients for decoupled Triton models."""
 
-Decoupled 모델 (model_transaction_policy { decoupled: true }) 전용.
-HTTP endpoint에서는 사용 불가 — gRPC bi-directional streaming 필수.
+from __future__ import annotations
 
-사용 예:
-    from client.streaming_client import TritonStreamingClient, TritonConfig
-
-    config = TritonConfig(grpc_url="localhost:8001")
-    client = TritonStreamingClient(config)
-
-    # 동기 스트리밍
-    for token in client.stream_infer("llm_vllm", "Hello, how are you?", max_tokens=100):
-        print(token, end="", flush=True)
-
-    # 콜백 기반 비동기 스트리밍
-    client.stream_infer_async(
-        "llm_vllm", "Hello!", max_tokens=50,
-        callback=lambda token, is_final: print(token, end="")
-    )
-"""
-
-from queue import Queue
-from typing import Callable, Iterator
+import json
+import threading
+from collections.abc import Callable, Iterator
+from queue import Empty, Queue
 
 import numpy as np
 
@@ -30,17 +13,102 @@ from .base import TritonConfig
 
 
 class TritonStreamingClient:
-    """gRPC decoupled streaming 클라이언트"""
+    """Serialize and consume one decoupled gRPC stream at a time."""
 
     def __init__(self, config: TritonConfig | None = None):
         self.config = config or TritonConfig()
+        if self.config.timeout <= 0:
+            raise ValueError("timeout must be greater than zero")
+
         import tritonclient.grpc as grpcclient
+
+        ssl_options = None
+        if self.config.ssl:
+            root_cert = None
+            if self.config.ssl_root_cert:
+                with open(self.config.ssl_root_cert, "rb") as cert_file:
+                    root_cert = cert_file.read()
+            ssl_options = grpcclient.SslOptions(root_certificates=root_cert)
 
         self._grpcclient = grpcclient
         self._client = grpcclient.InferenceServerClient(
             url=self.config.grpc_url,
             verbose=self.config.verbose,
+            ssl=self.config.ssl,
+            ssl_options=ssl_options,
         )
+        self._stream_lock = threading.Lock()
+        self._closed = False
+
+    @staticmethod
+    def _is_final(result) -> bool:
+        response = result.get_response()
+        parameters = getattr(response, "parameters", {})
+        final_parameter = parameters.get("triton_final_response")
+        return bool(getattr(final_parameter, "bool_param", False))
+
+    @staticmethod
+    def _decode_token(output: np.ndarray) -> str:
+        value = output.reshape(-1)[0]
+        if isinstance(value, bytes):
+            return value.decode("utf-8")
+        return str(value)
+
+    def _stream_request(
+        self,
+        model_name: str,
+        inputs: list,
+        output_name: str,
+        model_version: str,
+    ) -> Iterator[str]:
+        if self._closed:
+            raise RuntimeError("streaming client is closed")
+
+        events: Queue[tuple[str, object]] = Queue()
+
+        def response_callback(result, error):
+            if error is not None:
+                events.put(("error", error))
+                return
+            if result is None:
+                events.put(("final", None))
+                return
+
+            output = result.as_numpy(output_name)
+            if output is not None and output.size:
+                events.put(("token", self._decode_token(output)))
+            if self._is_final(result):
+                events.put(("final", None))
+
+        with self._stream_lock:
+            self._client.start_stream(callback=response_callback)
+            try:
+                self._client.async_stream_infer(
+                    model_name=model_name,
+                    model_version=model_version,
+                    inputs=inputs,
+                    outputs=[self._grpcclient.InferRequestedOutput(output_name)],
+                    enable_empty_final_response=True,
+                )
+
+                while True:
+                    try:
+                        event, payload = events.get(timeout=self.config.timeout)
+                    except Empty as exc:
+                        raise TimeoutError(
+                            f"No streaming response received for {self.config.timeout}s"
+                        ) from exc
+
+                    if event == "error":
+                        raise RuntimeError(f"Streaming inference failed: {payload}")
+                    if event == "final":
+                        break
+                    yield str(payload)
+            finally:
+                try:
+                    self._client.stop_stream(cancel_requests=True)
+                except TypeError:
+                    self._client.stop_stream()
 
     def stream_infer(
         self,
@@ -49,117 +117,94 @@ class TritonStreamingClient:
         max_tokens: int = 128,
         model_version: str = "",
     ) -> Iterator[str]:
-        """
-        동기 스트리밍 추론 — generator로 토큰 반환
+        """Stream from the repository's decoupled_streaming Python template."""
+        if max_tokens <= 0:
+            raise ValueError("max_tokens must be greater than zero")
 
-        사용:
-            for token in client.stream_infer("llm", "Hello"):
-                print(token, end="")
-        """
-        result_queue: Queue = Queue()
-        error_holder = [None]
-
-        def _callback(result, error):
-            if error:
-                error_holder[0] = error
-                result_queue.put(None)
-                return
-
-            if result:
-                output = result.as_numpy("OUTPUT_TOKEN")
-                if output is not None:
-                    token = output[0]
-                    if isinstance(token, bytes):
-                        token = token.decode("utf-8")
-                    result_queue.put(token)
-
-                # Check for final response
-                params = result.get_response()
-                is_final = params.parameters.get("triton_final_response", {}).bool_param if hasattr(params, 'parameters') else False
-                if is_final:
-                    result_queue.put(None)
-            else:
-                result_queue.put(None)
-
-        # Build inputs
         text_input = self._grpcclient.InferInput("INPUT_TEXT", [1, 1], "BYTES")
         text_input.set_data_from_numpy(np.array([[prompt]], dtype=object))
+        token_input = self._grpcclient.InferInput("MAX_TOKENS", [1, 1], "INT32")
+        token_input.set_data_from_numpy(np.array([[max_tokens]], dtype=np.int32))
+        return self._stream_request(
+            model_name,
+            [text_input, token_input],
+            "OUTPUT_TOKEN",
+            model_version,
+        )
 
-        max_tokens_input = self._grpcclient.InferInput("MAX_TOKENS", [1, 1], "INT32")
-        max_tokens_input.set_data_from_numpy(np.array([[max_tokens]], dtype=np.int32))
+    def stream_generate_vllm(
+        self,
+        model_name: str,
+        prompt: str,
+        max_tokens: int = 128,
+        sampling_parameters: dict | None = None,
+        model_version: str = "",
+    ) -> Iterator[str]:
+        """Stream from the vLLM backend contract in models/serving/nlp/llm."""
+        if max_tokens <= 0:
+            raise ValueError("max_tokens must be greater than zero")
 
-        output = self._grpcclient.InferRequestedOutput("OUTPUT_TOKEN")
+        parameters = dict(sampling_parameters or {})
+        parameters["max_tokens"] = max_tokens
 
-        self._client.start_stream(callback=_callback)
-        try:
-            self._client.async_stream_infer(
-                model_name=model_name,
-                model_version=model_version,
-                inputs=[text_input, max_tokens_input],
-                outputs=[output],
-                enable_empty_final_response=True,
-            )
-
-            while True:
-                token = result_queue.get()
-                if token is None:
-                    if error_holder[0]:
-                        raise RuntimeError(f"Inference error: {error_holder[0]}")
-                    break
-                yield token
-        finally:
-            self._client.stop_stream()
+        text_input = self._grpcclient.InferInput("text_input", [1], "BYTES")
+        text_input.set_data_from_numpy(np.array([prompt], dtype=object))
+        stream_input = self._grpcclient.InferInput("stream", [1], "BOOL")
+        stream_input.set_data_from_numpy(np.array([True], dtype=np.bool_))
+        parameters_input = self._grpcclient.InferInput(
+            "sampling_parameters", [1], "BYTES"
+        )
+        parameters_input.set_data_from_numpy(
+            np.array([json.dumps(parameters)], dtype=object)
+        )
+        return self._stream_request(
+            model_name,
+            [text_input, stream_input, parameters_input],
+            "text_output",
+            model_version,
+        )
 
     def stream_infer_async(
         self,
         model_name: str,
         prompt: str,
         max_tokens: int = 128,
-        callback: Callable[[str, bool], None] = lambda t, f: None,
+        callback: Callable[[str, bool], None] | None = None,
         model_version: str = "",
-    ):
-        """
-        콜백 기반 비동기 스트리밍 추론
+    ) -> threading.Thread:
+        """Consume the template stream on a worker thread and return its handle."""
+        token_callback = callback or (lambda token, is_final: None)
 
-        callback(token: str, is_final: bool)
-        """
+        def consume():
+            try:
+                for token in self.stream_infer(
+                    model_name, prompt, max_tokens, model_version
+                ):
+                    token_callback(token, False)
+                token_callback("", True)
+            except Exception as exc:
+                token_callback(f"ERROR: {exc}", True)
 
-        def _callback(result, error):
-            if error:
-                callback(f"ERROR: {error}", True)
-                return
-
-            if result:
-                output = result.as_numpy("OUTPUT_TOKEN")
-                if output is not None:
-                    token = output[0]
-                    if isinstance(token, bytes):
-                        token = token.decode("utf-8")
-
-                    params = result.get_response()
-                    is_final = params.parameters.get("triton_final_response", {}).bool_param if hasattr(params, 'parameters') else False
-                    callback(token, is_final)
-
-        text_input = self._grpcclient.InferInput("INPUT_TEXT", [1, 1], "BYTES")
-        text_input.set_data_from_numpy(np.array([[prompt]], dtype=object))
-
-        max_tokens_input = self._grpcclient.InferInput("MAX_TOKENS", [1, 1], "INT32")
-        max_tokens_input.set_data_from_numpy(np.array([[max_tokens]], dtype=np.int32))
-
-        output = self._grpcclient.InferRequestedOutput("OUTPUT_TOKEN")
-
-        self._client.start_stream(callback=_callback)
-        self._client.async_stream_infer(
-            model_name=model_name,
-            model_version=model_version,
-            inputs=[text_input, max_tokens_input],
-            outputs=[output],
-            enable_empty_final_response=True,
-        )
+        thread = threading.Thread(target=consume, daemon=True)
+        thread.start()
+        return thread
 
     def close(self):
+        if self._closed:
+            return
+        self._closed = True
         try:
-            self._client.stop_stream()
-        except Exception:
-            pass
+            self._client.stop_stream(cancel_requests=True)
+        except (TypeError, RuntimeError):
+            try:
+                self._client.stop_stream()
+            except RuntimeError:
+                pass
         self._client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+        return False

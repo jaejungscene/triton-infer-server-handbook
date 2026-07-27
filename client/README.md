@@ -30,3 +30,24 @@ python -m pip install -r requirements-integration.txt
 | `streaming_client.py` | gRPC decoupled streaming (LLM용) |
 | `shared_memory_client.py` | CPU/CUDA Shared Memory 클라이언트 |
 | `stats_client.py` | Statistics API — 모델별 추론 통계 조회 |
+
+## Streaming contract
+
+Python backend template과 vLLM backend는 tensor 계약이 다릅니다.
+
+```python
+with TritonStreamingClient(TritonConfig(timeout=30)) as client:
+    # models/_templates/decoupled_streaming 계약
+    for token in client.stream_infer("decoupled_streaming", "Hello"):
+        print(token, end="")
+
+    # models/serving/nlp/llm vLLM 계약
+    for token in client.stream_generate_vllm(
+        "llm_vllm", "Hello", sampling_parameters={"temperature": 0.2}
+    ):
+        print(token, end="")
+```
+
+`TritonConfig.timeout`은 스트림에서 다음 응답을 기다리는 최대 idle 시간입니다. timeout이나
+오류가 발생하면 해당 stream request를 취소합니다. 한 client instance에서는 stream을
+직렬화하므로 높은 동시성이 필요하면 worker별 client를 생성합니다.
