@@ -20,7 +20,10 @@
 `enabled: true`로 전환합니다.
 
 ```bash
-# 1. 환경설정
+# 1. 검증 도구와 환경설정
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
 cp .env.example .env.dev
 
 # 2. 모델 빌드 (models/serving/ → model_repository/)

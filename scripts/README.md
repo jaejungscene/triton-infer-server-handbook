@@ -20,3 +20,8 @@
 배치하지 않으며, CI/CD가 immutable model revision을 먼저 게시한 뒤 실행해야 합니다.
 단일 replica의 explicit reload는 무중단이 아닙니다. 무중단 교체가 필요하면 새 Deployment나
 새 model name으로 먼저 load·warmup한 후 traffic을 전환하는 blue/green 방식을 사용합니다.
+
+`build.sh`는 PyYAML로 manifest 전체를 검증하고 모든 선택 모델을 임시 디렉토리에 먼저
+복사한 뒤 성공한 경우에만 `model_repository`를 교체합니다. enabled source·required artifact가
+없거나 선택 결과가 0개면 기존 repository를 수정하지 않고 실패합니다. `.env.*`는 Compose
+설정이며 build 과정에서 shell script로 실행하지 않습니다.

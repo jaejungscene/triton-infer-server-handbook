@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
-# =============================================================================
-# build.sh — manifest.yaml 기반 model_repository 빌드
-# =============================================================================
-# 사용법:
-#   ./scripts/build.sh --env dev
-#   ./scripts/build.sh --env prod --tags gpu,tensorrt
-#   ./scripts/build.sh --env dev --clean
-#
-# 이 스크립트가 하는 일:
-#   1. models/serving/manifest.yaml 읽기
-#   2. source → target 매핑에 따라 model_repository/ 에 복사
-#   3. enabled=false 모델과 tag 필터 미일치 모델 제외
-# =============================================================================
+# Build model_repository from the validated serving manifest.
 
 set -euo pipefail
 
@@ -21,144 +9,184 @@ MANIFEST="${PROJECT_ROOT}/models/serving/manifest.yaml"
 MODEL_REPO="${PROJECT_ROOT}/model_repository"
 MODELS_SRC="${PROJECT_ROOT}/models/serving"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Arguments
-# ─────────────────────────────────────────────────────────────────────────────
-ENV="dev"
+BUILD_ENV="dev"
 TAGS=""
 CLEAN=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --env)     ENV="$2"; shift 2 ;;
-        --tags)    TAGS="$2"; shift 2 ;;
-        --clean)   CLEAN=true; shift ;;
+        --env)
+            [[ $# -ge 2 ]] || { echo "--env requires a value" >&2; exit 2; }
+            BUILD_ENV="$2"
+            shift 2
+            ;;
+        --tags)
+            [[ $# -ge 2 ]] || { echo "--tags requires a value" >&2; exit 2; }
+            TAGS="$2"
+            shift 2
+            ;;
+        --clean)
+            CLEAN=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 --env {dev|staging|prod} [--tags tag1,tag2] [--clean]"
             exit 0
             ;;
-        *) echo "Unknown option: $1"; exit 1 ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 2
+            ;;
     esac
 done
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Load environment
-# ─────────────────────────────────────────────────────────────────────────────
-ENV_FILE="${PROJECT_ROOT}/.env.${ENV}"
-if [[ -f "${ENV_FILE}" ]]; then
-    echo "[build] Loading environment from ${ENV_FILE}"
-    set -a
-    # shellcheck source=/dev/null
-    source "${ENV_FILE}"
-    set +a
+if [[ ! "${BUILD_ENV}" =~ ^(dev|staging|prod)$ ]]; then
+    echo "[build] --env must be dev, staging, or prod" >&2
+    exit 2
+fi
+if [[ -n "${TAGS}" && ! "${TAGS}" =~ ^[A-Za-z0-9._-]+(,[A-Za-z0-9._-]+)*$ ]]; then
+    echo "[build] --tags must be a comma-separated list of safe tag names" >&2
+    exit 2
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Clean
-# ─────────────────────────────────────────────────────────────────────────────
-if [[ "${CLEAN}" == true ]]; then
-    echo "[build] Cleaning model_repository/"
-    find "${MODEL_REPO}" -mindepth 1 -not -name '.gitkeep' -exec rm -rf {} + 2>/dev/null || true
+if [[ -n "${PYTHON_BIN:-}" ]]; then
+    python_bin="${PYTHON_BIN}"
+elif [[ -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
+    python_bin="${PROJECT_ROOT}/.venv/bin/python"
+else
+    python_bin="python3"
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Check dependencies
-# ─────────────────────────────────────────────────────────────────────────────
-if ! command -v python3 &>/dev/null; then
-    echo "[build] ERROR: python3 is required"
+if ! command -v "${python_bin}" > /dev/null 2>&1; then
+    echo "[build] Python 3 is required" >&2
     exit 1
 fi
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Parse manifest and build
-# ─────────────────────────────────────────────────────────────────────────────
-echo "[build] Building model_repository from manifest (env=${ENV}, tags=${TAGS:-all})"
+echo "[build] Validating and staging models (env=${BUILD_ENV}, tags=${TAGS:-all})"
 
-python3 - "${MANIFEST}" "${MODELS_SRC}" "${MODEL_REPO}" "${TAGS}" <<'PYTHON_SCRIPT'
-import sys
+"${python_bin}" - "${MANIFEST}" "${MODELS_SRC}" "${MODEL_REPO}" "${TAGS}" "${CLEAN}" <<'PYTHON_SCRIPT'
+from __future__ import annotations
+
 import os
+import re
 import shutil
+import sys
+import tempfile
+from pathlib import Path
 
 try:
     import yaml
 except ImportError:
-    # Fallback: simple YAML parser for manifest.yaml
-    import json
-    print("[build] WARNING: PyYAML not installed, using fallback parser", file=sys.stderr)
-    yaml = None
+    print(
+        "[build] PyYAML is required. Run: python -m pip install -r requirements-dev.txt",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 
-manifest_path = sys.argv[1]
-models_src = sys.argv[2]
-model_repo = sys.argv[3]
-filter_tags = set(sys.argv[4].split(",")) if sys.argv[4] else set()
 
-def parse_manifest_simple(path):
-    """Simple manifest parser without PyYAML dependency."""
-    models = []
-    current = {}
-    with open(path) as f:
-        for line in f:
-            stripped = line.strip()
-            if stripped.startswith("- source:"):
-                if current:
-                    models.append(current)
-                current = {"source": stripped.split(":", 1)[1].strip()}
-            elif stripped.startswith("target:") and current:
-                current["target"] = stripped.split(":", 1)[1].strip()
-            elif stripped.startswith("tags:") and current:
-                tags_str = stripped.split(":", 1)[1].strip().strip("[]")
-                current["tags"] = [t.strip() for t in tags_str.split(",")]
-            elif stripped.startswith("enabled:") and current:
-                current["enabled"] = stripped.split(":", 1)[1].strip().lower() == "true"
-    if current:
-        models.append(current)
-    return models
+manifest_path = Path(sys.argv[1]).resolve()
+models_src = Path(sys.argv[2]).resolve()
+model_repo = Path(sys.argv[3]).resolve()
+filter_tags = set(filter(None, sys.argv[4].split(",")))
+clean = sys.argv[5].lower() == "true"
+safe_name = re.compile(r"^[A-Za-z0-9._-]+$")
 
-# Parse manifest
-if yaml:
-    with open(manifest_path) as f:
-        manifest = yaml.safe_load(f)
-    models = manifest.get("models", [])
-else:
-    models = parse_manifest_simple(manifest_path)
 
-built = 0
-skipped = 0
+def contained_path(base: Path, relative: str, field: str) -> Path:
+    candidate = (base / relative).resolve()
+    if not candidate.is_relative_to(base):
+        raise ValueError(f"{field} escapes its allowed directory: {relative}")
+    return candidate
 
-for model in models:
-    # Skip disabled models
+
+with manifest_path.open(encoding="utf-8") as manifest_file:
+    manifest = yaml.safe_load(manifest_file)
+
+if not isinstance(manifest, dict) or not isinstance(manifest.get("models"), list):
+    raise SystemExit("[build] manifest.yaml must contain a models list")
+
+selected_models = []
+targets = set()
+for index, model in enumerate(manifest["models"]):
+    if not isinstance(model, dict):
+        raise SystemExit(f"[build] models[{index}] must be an object")
+
+    source = model.get("source")
+    target = model.get("target")
+    if not isinstance(source, str) or not source:
+        raise SystemExit(f"[build] models[{index}].source is required")
+    if not isinstance(target, str) or not safe_name.fullmatch(target):
+        raise SystemExit(f"[build] invalid target name at models[{index}]: {target}")
+    if target in targets:
+        raise SystemExit(f"[build] duplicate target: {target}")
+    targets.add(target)
+
+    tags = model.get("tags", [])
+    if not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags):
+        raise SystemExit(f"[build] models[{index}].tags must be a string list")
+    if not isinstance(model.get("enabled", True), bool):
+        raise SystemExit(f"[build] models[{index}].enabled must be boolean")
+    required_files = model.get("required_files", [])
+    if not isinstance(required_files, list) or not all(
+        isinstance(required_file, str) for required_file in required_files
+    ):
+        raise SystemExit(f"[build] models[{index}].required_files must be a string list")
+
+    source_path = contained_path(models_src, source, "source")
     if not model.get("enabled", True):
-        print(f"  SKIP (disabled): {model['source']}")
-        skipped += 1
+        print(f"  SKIP (disabled): {source}")
         continue
-
-    # Filter by tags
-    model_tags = set(model.get("tags", []))
-    if filter_tags and not filter_tags.intersection(model_tags):
-        print(f"  SKIP (tags): {model['source']}")
-        skipped += 1
+    if filter_tags and not filter_tags.intersection(tags):
+        print(f"  SKIP (tags): {source}")
         continue
+    if not source_path.is_dir():
+        raise SystemExit(f"[build] enabled model source not found: {source_path}")
 
-    source_path = os.path.join(models_src, model["source"])
-    target_path = os.path.join(model_repo, model["target"])
+    for required_file in required_files:
+        required_path = contained_path(source_path, required_file, "required_files")
+        if not required_path.is_file():
+            raise SystemExit(
+                f"[build] enabled model {target} is missing artifact: {required_file}"
+            )
 
-    if not os.path.exists(source_path):
-        print(f"  WARNING: Source not found: {source_path}", file=sys.stderr)
-        skipped += 1
-        continue
+    selected_models.append((source, source_path, target))
 
-    # Remove existing target
-    if os.path.exists(target_path):
-        shutil.rmtree(target_path)
+if not selected_models:
+    raise SystemExit("[build] no enabled models matched the requested tags")
 
-    # Copy source to target
-    shutil.copytree(source_path, target_path)
-    print(f"  OK: {model['source']} -> {model['target']}")
-    built += 1
+model_repo.mkdir(parents=True, exist_ok=True)
+staging_root = Path(tempfile.mkdtemp(prefix=".triton-build-", dir=model_repo))
+ignore_files = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store")
 
-print(f"\n[build] Done: {built} models built, {skipped} skipped")
+try:
+    for source, source_path, target in selected_models:
+        shutil.copytree(source_path, staging_root / target, ignore=ignore_files)
+        print(f"  STAGED: {source} -> {target}")
+
+    if clean:
+        for child in model_repo.iterdir():
+            if child.name in {".gitkeep", staging_root.name}:
+                continue
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+
+    for _, _, target in selected_models:
+        target_path = contained_path(model_repo, target, "target")
+        if target_path.exists():
+            if target_path.is_dir() and not target_path.is_symlink():
+                shutil.rmtree(target_path)
+            else:
+                target_path.unlink()
+        os.replace(staging_root / target, target_path)
+        print(f"  BUILT: {target}")
+finally:
+    shutil.rmtree(staging_root, ignore_errors=True)
+
+print(f"\n[build] Done: {len(selected_models)} model(s) built")
 PYTHON_SCRIPT
 
 echo "[build] model_repository contents:"
-ls -la "${MODEL_REPO}/" 2>/dev/null || echo "  (empty)"
-echo "[build] Build complete (env=${ENV})"
+ls -la "${MODEL_REPO}/"
+echo "[build] Build complete (env=${BUILD_ENV})"
