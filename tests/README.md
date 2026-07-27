@@ -44,6 +44,8 @@ docker run --rm \
 
 `tests/config/`는 Triton 서버가 없어도 실행됩니다. `tests/smoke/`와
 `tests/integration/`은 이미 기동 중인 Triton 서버가 필요합니다.
+Smoke test는 Repository Index API에서 ready 모델이 최소 하나 확인되어야 통과합니다.
+서버 health endpoint만 200이고 모델이 하나도 로드되지 않은 상태는 배포 성공으로 보지 않습니다.
 
 성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,
 `tests/perf/baseline.json`의 동일 concurrency 기준과 비교합니다. `perf_analyzer`의 latency

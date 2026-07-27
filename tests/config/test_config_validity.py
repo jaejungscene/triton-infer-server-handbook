@@ -85,6 +85,17 @@ class TestConfigFiles:
             assert len(version_dirs) > 0 or "configs" in os.listdir(model_dir), \
                 f"No version directory in {model_dir}"
 
+    def test_health_checks_use_repository_index_for_model_listing(self, project_root):
+        checked_files = [
+            os.path.join(project_root, "scripts", "health_check.sh"),
+            os.path.join(project_root, "tests", "smoke", "test_smoke.py"),
+        ]
+        for checked_file in checked_files:
+            with open(checked_file) as source_file:
+                content = source_file.read()
+            assert "/v2/repository/index" in content
+            assert '"/v2/models"' not in content
+
 
 @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
 class TestManifest:
