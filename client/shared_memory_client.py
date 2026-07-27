@@ -30,6 +30,7 @@ Shared Memory Client — CPU/CUDA 공유 메모리 클라이언트
 """
 
 import logging
+import uuid
 
 import numpy as np
 
@@ -76,89 +77,147 @@ class TritonSHMClient:
     ) -> dict[str, np.ndarray]:
         """Shared Memory를 사용한 추론"""
 
+        missing_shapes = set(output_names) - set(output_shapes)
+        missing_dtypes = set(output_names) - set(output_dtypes)
+        if missing_shapes or missing_dtypes:
+            raise ValueError(
+                f"Missing output metadata: shapes={sorted(missing_shapes)}, "
+                f"dtypes={sorted(missing_dtypes)}"
+            )
+
         inputs = []
         outputs = []
+        request_regions = []
+        request_prefix = f"triton_{uuid.uuid4().hex}"
 
-        # ── Input SHM 등록 ──
-        for name, data in input_data.items():
-            region_name = f"input_{name}"
-            byte_size = data.nbytes
+        try:
+            # ── Input SHM 등록 ──
+            for index, (name, data) in enumerate(input_data.items()):
+                data = np.ascontiguousarray(data)
+                region_name = f"{request_prefix}_input_{index}"
+                byte_size = data.nbytes
+                if byte_size <= 0:
+                    raise ValueError(f"Input {name} must not be empty")
 
-            # SHM 영역 생성
-            if self.use_cuda:
-                shm_handle = self._shm.create_shared_memory_region(region_name, byte_size, 0)
-                self._shm.set_shared_memory_region(shm_handle, [data])
-            else:
-                shm_handle = self._shm.create_shared_memory_region(region_name, f"/{region_name}", byte_size)
-                self._shm.set_shared_memory_region(shm_handle, [data])
+                if self.use_cuda:
+                    shm_handle = self._shm.create_shared_memory_region(
+                        region_name, byte_size, 0
+                    )
+                    self._shm.set_shared_memory_region(shm_handle, [data])
+                else:
+                    shm_handle = self._shm.create_shared_memory_region(
+                        region_name, f"/{region_name}", byte_size
+                    )
+                    self._shm.set_shared_memory_region(shm_handle, [data])
 
-            # Triton에 등록
-            if self.use_cuda:
-                self._client.register_cuda_shared_memory(region_name, self._shm.get_raw_handle(shm_handle), 0, byte_size)
-            else:
-                self._client.register_system_shared_memory(region_name, f"/{region_name}", byte_size)
+                self._registered_regions.append(region_name)
+                self._region_handles[region_name] = shm_handle
+                request_regions.append(region_name)
 
-            self._registered_regions.append(region_name)
-            self._region_handles[region_name] = shm_handle
+                if self.use_cuda:
+                    self._client.register_cuda_shared_memory(
+                        region_name,
+                        self._shm.get_raw_handle(shm_handle),
+                        0,
+                        byte_size,
+                    )
+                else:
+                    self._client.register_system_shared_memory(
+                        region_name, f"/{region_name}", byte_size
+                    )
 
-            # Input 구성
-            inp = self._httpclient.InferInput(name, list(data.shape), self._numpy_to_triton_dtype(data.dtype))
-            inp.set_shared_memory(region_name, byte_size)
-            inputs.append(inp)
+                inp = self._httpclient.InferInput(
+                    name, list(data.shape), self._numpy_to_triton_dtype(data.dtype)
+                )
+                inp.set_shared_memory(region_name, byte_size)
+                inputs.append(inp)
 
-        # ── Output SHM 등록 ──
-        for name in output_names:
-            region_name = f"output_{name}"
-            shape = output_shapes[name]
-            dtype = output_dtypes[name]
-            byte_size = int(np.prod(shape) * np.dtype(dtype).itemsize)
+            # ── Output SHM 등록 ──
+            for index, name in enumerate(output_names):
+                region_name = f"{request_prefix}_output_{index}"
+                shape = output_shapes[name]
+                dtype = output_dtypes[name]
+                byte_size = int(np.prod(shape) * np.dtype(dtype).itemsize)
+                if byte_size <= 0:
+                    raise ValueError(f"Output {name} must have a positive byte size")
 
-            if self.use_cuda:
-                shm_handle = self._shm.create_shared_memory_region(region_name, byte_size, 0)
-                self._client.register_cuda_shared_memory(region_name, self._shm.get_raw_handle(shm_handle), 0, byte_size)
-            else:
-                shm_handle = self._shm.create_shared_memory_region(region_name, f"/{region_name}", byte_size)
-                self._client.register_system_shared_memory(region_name, f"/{region_name}", byte_size)
+                if self.use_cuda:
+                    shm_handle = self._shm.create_shared_memory_region(
+                        region_name, byte_size, 0
+                    )
+                else:
+                    shm_handle = self._shm.create_shared_memory_region(
+                        region_name, f"/{region_name}", byte_size
+                    )
 
-            self._registered_regions.append(region_name)
-            self._region_handles[region_name] = shm_handle
+                self._registered_regions.append(region_name)
+                self._region_handles[region_name] = shm_handle
+                request_regions.append(region_name)
 
-            out = self._httpclient.InferRequestedOutput(name)
-            out.set_shared_memory(region_name, byte_size)
-            outputs.append(out)
+                if self.use_cuda:
+                    self._client.register_cuda_shared_memory(
+                        region_name,
+                        self._shm.get_raw_handle(shm_handle),
+                        0,
+                        byte_size,
+                    )
+                else:
+                    self._client.register_system_shared_memory(
+                        region_name, f"/{region_name}", byte_size
+                    )
 
-        # ── 추론 ──
-        result = self._client.infer(
-            model_name=model_name,
-            inputs=inputs,
-            outputs=outputs,
-            model_version=model_version,
-        )
+                out = self._httpclient.InferRequestedOutput(name)
+                out.set_shared_memory(region_name, byte_size)
+                outputs.append(out)
 
-        return {name: result.as_numpy(name) for name in output_names}
+            result = self._client.infer(
+                model_name=model_name,
+                inputs=inputs,
+                outputs=outputs,
+                model_version=model_version,
+            )
 
-    def cleanup(self):
-        """등록된 모든 SHM 영역 해제 — 반드시 호출"""
-        for region_name in self._registered_regions:
+            copied_outputs = {}
+            for name in output_names:
+                output = result.as_numpy(name)
+                if output is None:
+                    raise RuntimeError(f"Triton response is missing output {name}")
+                copied_outputs[name] = output.copy()
+            return copied_outputs
+        finally:
+            self._cleanup_regions(request_regions)
+
+    def _cleanup_regions(self, region_names):
+        for region_name in reversed(region_names):
+            if region_name not in self._region_handles:
+                continue
             try:
                 if self.use_cuda:
                     self._client.unregister_cuda_shared_memory(region_name)
                 else:
                     self._client.unregister_system_shared_memory(region_name)
             except Exception as exc:
-                _LOGGER.debug("Failed to unregister shared memory region %s: %s", region_name, exc)
+                _LOGGER.debug(
+                    "Failed to unregister shared memory region %s: %s",
+                    region_name,
+                    exc,
+                )
 
-            shm_handle = self._region_handles.get(region_name)
-            if shm_handle is None:
-                continue
-
+            shm_handle = self._region_handles.pop(region_name)
             try:
                 self._shm.destroy_shared_memory_region(shm_handle)
             except Exception as exc:
-                _LOGGER.debug("Failed to destroy shared memory region %s: %s", region_name, exc)
+                _LOGGER.debug(
+                    "Failed to destroy shared memory region %s: %s", region_name, exc
+                )
+            try:
+                self._registered_regions.remove(region_name)
+            except ValueError:
+                pass
 
-        self._registered_regions.clear()
-        self._region_handles.clear()
+    def cleanup(self):
+        """등록된 모든 SHM 영역 해제 — 반드시 호출"""
+        self._cleanup_regions(list(self._registered_regions))
 
     def __enter__(self):
         return self

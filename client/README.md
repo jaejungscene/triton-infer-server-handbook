@@ -51,3 +51,7 @@ with TritonStreamingClient(TritonConfig(timeout=30)) as client:
 `TritonConfig.timeout`은 스트림에서 다음 응답을 기다리는 최대 idle 시간입니다. timeout이나
 오류가 발생하면 해당 stream request를 취소합니다. 한 client instance에서는 stream을
 직렬화하므로 높은 동시성이 필요하면 worker별 client를 생성합니다.
+
+Shared-memory client는 요청마다 충돌하지 않는 region 이름을 만들고 inference 종료 시 즉시
+해제합니다. 반환 NumPy 배열은 region 해제 전에 복사되므로 client 수명과 독립적입니다.
+출력 shape/dtype은 실제 모델 계약과 정확히 일치해야 하며 빈 tensor는 허용하지 않습니다.
