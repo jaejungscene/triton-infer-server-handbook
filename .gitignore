@@ -48,8 +48,6 @@ env/
 .env.*.local
 !.env.example
 !.env.dev
-!.env.staging
-!.env.prod
 
 # TLS certificates (never commit real certs)
 *.pem

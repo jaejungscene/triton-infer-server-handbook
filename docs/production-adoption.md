@@ -117,6 +117,11 @@ Rollback 기준:
 - Kustomize base: `deploy/k8s/base/deployment.yaml`
 - Kustomize overlay: `deploy/k8s/overlays/*/triton_args_patch.yaml`
 
+Docker Compose production 예시는 단일 호스트 검증용이며 기본적으로 모든 포트를
+`127.0.0.1`에만 바인딩합니다. 외부 공개는 인증·TLS·rate limit을 적용한 reverse proxy를
+통해 수행하고, `.env.prod`의 `GRAFANA_ADMIN_PASSWORD`를 채우기 전에는 기동하지 않습니다.
+`.env.prod`와 `.env.staging`은 secret이 들어갈 수 있으므로 Git에 추적하지 않습니다.
+
 ## 참고 문서
 
 - Model Management: https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/model_management.html
