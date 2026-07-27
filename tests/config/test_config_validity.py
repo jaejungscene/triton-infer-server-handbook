@@ -241,3 +241,24 @@ class TestDeploymentRuntimeArgs:
         ]["service"]["port"]["name"]
         assert http_port == "http"
         assert grpc_port == "grpc"
+
+    def test_deployments_define_safe_rollout_and_startup(self, project_root):
+        base_deployment = self._load_yaml(
+            os.path.join(project_root, "deploy", "k8s", "base", "deployment.yaml")
+        )
+        spec = base_deployment["spec"]
+        pod_spec = spec["template"]["spec"]
+        container = pod_spec["containers"][0]
+
+        assert spec["strategy"]["rollingUpdate"]["maxUnavailable"] == 0
+        assert pod_spec["automountServiceAccountToken"] is False
+        assert pod_spec["terminationGracePeriodSeconds"] >= 60
+        assert container["startupProbe"]["failureThreshold"] >= 30
+        assert container["securityContext"]["allowPrivilegeEscalation"] is False
+
+        helm_values = self._load_yaml(
+            os.path.join(project_root, "deploy", "helm", "triton", "values.yaml")
+        )
+        assert helm_values["updateStrategy"]["rollingUpdate"]["maxUnavailable"] == 0
+        assert helm_values["automountServiceAccountToken"] is False
+        assert helm_values["startupProbe"]["failureThreshold"] >= 30

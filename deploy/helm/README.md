@@ -44,6 +44,11 @@ helm upgrade --install triton deploy/helm/triton \
 `tritonserver`여야 하며, 그 뒤에 `--model-repository=/models` 같은 서버 플래그를
 나열합니다.
 
+HPA가 활성화되면 Deployment의 `spec.replicas`는 렌더링하지 않습니다. Helm upgrade가
+HPA가 계산한 replica 수를 다시 기본값으로 덮지 않게 하기 위한 설정입니다. startup probe가
+통과하기 전에는 liveness probe가 동작하지 않으며, 종료 시에는 preStop과 grace period로
+endpoint 전파 및 진행 중 요청 정리 시간을 확보합니다.
+
 ## 주요 배포 명령어
 
 ```bash

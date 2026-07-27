@@ -5,7 +5,13 @@ metadata:
   labels:
     {{- include "triton.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  minReadySeconds: {{ .Values.minReadySeconds }}
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds }}
+  strategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
   selector:
     matchLabels:
       {{- include "triton.selectorLabels" . | nindent 6 }}
@@ -14,6 +20,10 @@ spec:
       labels:
         {{- include "triton.selectorLabels" . | nindent 8 }}
     spec:
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -37,6 +47,10 @@ spec:
               containerPort: {{ .Values.service.metricsPort }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          lifecycle:
+            {{- toYaml .Values.lifecycle | nindent 12 }}
           volumeMounts:
             - name: model-repository
               mountPath: /models
@@ -45,6 +59,8 @@ spec:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
       volumes:
         - name: model-repository
           {{- if .Values.persistence.enabled }}

@@ -6,6 +6,13 @@ metadata:
     app: triton-server
 spec:
   replicas: 1
+  minReadySeconds: 10
+  progressDeadlineSeconds: 900
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: triton-server
@@ -18,6 +25,11 @@ spec:
         prometheus.io/port: "8002"
         prometheus.io/path: "/metrics"
     spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: triton
           image: nvcr.io/nvidia/tritonserver:24.08-py3
@@ -47,20 +59,35 @@ spec:
               cpu: "4"
               memory: "16Gi"
               nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+          startupProbe:
+            httpGet:
+              path: /v2/health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
           livenessProbe:
             httpGet:
               path: /v2/health/live
               port: http
-            initialDelaySeconds: 60
             periodSeconds: 30
-            timeoutSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /v2/health/ready
               port: http
-            initialDelaySeconds: 60
-            periodSeconds: 15
-            timeoutSeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
       volumes:
         - name: model-repository
           persistentVolumeClaim:
