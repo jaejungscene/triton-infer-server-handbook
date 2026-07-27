@@ -120,7 +120,7 @@ triton-inference-server/
 │   └── model_control/                   # 런타임 모델 관리 (서버 재시작 불필요)
 │       ├── load.sh                      # POST /v2/repository/models/{name}/load
 │       ├── unload.sh                    # POST /v2/repository/models/{name}/unload
-│       └── reload.sh                    # unload → load 순차 실행 (무중단 교체)
+│       └── reload.sh                    # artifact 게시 후 unload → load, ready 검증
 │
 ├── client/                              # Triton 클라이언트 라이브러리
 │   ├── base.py                          # 추상 기본 클라이언트

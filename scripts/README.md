@@ -11,6 +11,12 @@
 | `convert/to_tensorrt.sh` | ONNX → TensorRT 변환 | CI/CD |
 | `convert/to_torchscript.py` | PyTorch → TorchScript 변환 | 모델 업데이트 시 |
 | `convert/to_fil.py` | sklearn/XGBoost → FIL 변환 | 모델 업데이트 시 |
-| `model_control/load.sh` | 런타임 모델 로드 | 무중단 배포 |
-| `model_control/unload.sh` | 런타임 모델 언로드 | 무중단 교체 |
-| `model_control/reload.sh` | unload → 배치 → load 시퀀스 | 무중단 교체 |
+| `model_control/load.sh` | 런타임 모델 로드 후 ready 확인 | explicit mode 운영 |
+| `model_control/unload.sh` | 런타임 모델 언로드 완료 확인 | explicit mode 운영 |
+| `model_control/reload.sh` | 검증된 artifact를 unload → load | 단일 replica에서는 가용성 공백 발생 |
+
+모델 이름은 URL 경로에 사용되므로 영문·숫자·점·밑줄·하이픈만 허용합니다. 세 스크립트의
+기본 timeout은 120초이며 세 번째 인자로 조정할 수 있습니다. `reload.sh`는 artifact를
+배치하지 않으며, CI/CD가 immutable model revision을 먼저 게시한 뒤 실행해야 합니다.
+단일 replica의 explicit reload는 무중단이 아닙니다. 무중단 교체가 필요하면 새 Deployment나
+새 model name으로 먼저 load·warmup한 후 traffic을 전환하는 blue/green 방식을 사용합니다.
