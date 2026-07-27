@@ -8,6 +8,15 @@ image:
   tag: "24.08-py3"
   pullPolicy: IfNotPresent
 
+imagePullSecrets: []
+priorityClassName: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8002"
+  prometheus.io/path: /metrics
+podLabels: {}
+
 replicaCount: 1
 
 minReadySeconds: 10
@@ -65,8 +74,11 @@ resources:
 # ----- 영속성 (모델 저장소 PVC) -----
 persistence:
   enabled: true
+  existingClaim: ""
+  mountPath: /models
   size: 50Gi
   accessMode: ReadWriteMany
+  annotations: {}
   # storageClassName: ""   # 클러스터 환경에 맞게 설정
 
 # ----- HPA (수평 파드 자동 확장) -----
@@ -89,6 +101,19 @@ tolerations:
   - key: "nvidia.com/gpu"
     operator: "Exists"
     effect: "NoSchedule"
+
+affinity: {}
+topologySpread:
+  enabled: false
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+# Secret/ConfigMap 기반 cloud repository 인증 등에 사용
+env: []
+envFrom: []
+extraVolumeMounts: []
+extraVolumes: []
 
 # ----- 프로브 -----
 livenessProbe:

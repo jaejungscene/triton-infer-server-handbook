@@ -49,6 +49,24 @@ HPA가 계산한 replica 수를 다시 기본값으로 덮지 않게 하기 위�
 통과하기 전에는 liveness probe가 동작하지 않으며, 종료 시에는 preStop과 grace period로
 endpoint 전파 및 진행 중 요청 정리 시간을 확보합니다.
 
+기존 모델 PVC나 private registry를 사용하는 환경은 템플릿을 수정하지 않고 values로
+연결합니다.
+
+```yaml
+imagePullSecrets:
+  - name: registry-credentials
+persistence:
+  enabled: true
+  existingClaim: shared-model-repository
+envFrom:
+  - secretRef:
+      name: triton-cloud-credentials
+```
+
+staging/prod는 hostname 기준 topology spread를 기본 활성화합니다. GPU 여유 노드가 적은
+클러스터에서는 `whenUnsatisfiable: ScheduleAnyway`이므로 배포를 막지는 않으며, 강제 분산이
+필요하면 `DoNotSchedule`로 바꾸고 GPU 용량을 먼저 확보합니다.
+
 ## 주요 배포 명령어
 
 ```bash
