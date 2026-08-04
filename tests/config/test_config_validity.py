@@ -5,6 +5,7 @@ CI에서 자동 실행되어 잘못된 설정이 배포되는 것을 방지합�
 """
 
 import os
+import re
 
 import pytest
 
@@ -348,6 +349,34 @@ class TestReleaseWorkflow:
         ):
             assert command in workflow, f"PR CI does not run {command}"
         assert "- 'monitoring/**'" in workflow
+
+    @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
+    def test_external_actions_are_pinned_to_commit_sha(self, project_root):
+        workflows_dir = os.path.join(project_root, ".github", "workflows")
+
+        def collect_uses(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == "uses" and isinstance(value, str):
+                        yield value
+                    else:
+                        yield from collect_uses(value)
+            elif isinstance(node, list):
+                for value in node:
+                    yield from collect_uses(value)
+
+        for filename in os.listdir(workflows_dir):
+            if not filename.endswith((".yml", ".yaml")):
+                continue
+            path = os.path.join(workflows_dir, filename)
+            with open(path) as workflow_file:
+                workflow = yaml.safe_load(workflow_file)
+            for action in collect_uses(workflow):
+                if action.startswith("./"):
+                    continue
+                _, separator, revision = action.rpartition("@")
+                assert separator and re.fullmatch(r"[0-9a-f]{40}", revision), \
+                    f"{filename}: external action must use a full commit SHA: {action}"
 
 
 class TestImmutableModelRelease:

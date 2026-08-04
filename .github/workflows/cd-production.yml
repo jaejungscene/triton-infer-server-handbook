@@ -50,14 +50,14 @@ jobs:
 
       - name: Checkout release revision
         if: ${{ github.event.inputs.rollback != 'true' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.inputs.image_tag }}
           fetch-depth: 0
 
       - name: Checkout current main for rollback
         if: ${{ github.event.inputs.rollback == 'true' }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Verify release revision belongs to main
         if: ${{ github.event.inputs.rollback != 'true' }}
@@ -71,15 +71,15 @@ jobs:
           IMAGE_TAG: ${{ github.event.inputs.image_tag }}
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
 
       - name: Setup kustomize
-        uses: imranismail/setup-kustomize@v2
+        uses: imranismail/setup-kustomize@2ba527d4d055ab63514ba50a99456fc35684947f # v2
 
       - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
 
       - name: Configure kubeconfig
         run: |
@@ -150,7 +150,7 @@ jobs:
 
       - name: Notify
         if: always() && env.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1.25.0
+        uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001 # v1.25.0
         with:
           payload: |
             {
