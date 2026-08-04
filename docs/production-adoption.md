@@ -31,7 +31,7 @@
 | 영역 | 권장값 | 이유 |
 |------|--------|------|
 | model control | `explicit` + 승인된 초기 모델 목록 | 시작 시 무모델 상태를 피하고 운영 중 변경은 API로 제한 |
-| repository | immutable artifact + revision | rollback 가능성 확보 |
+| repository | 기본은 image-bundled, 대형 모델은 별도 immutable revision | 배포 단위와 rollback 대상 명확화 |
 | cache | `--cache-config=local,size=...`부터 검증 | 기본 구현으로 효과 확인 후 확장 |
 | rate limiter | GPU memory가 빡빡한 모델부터 적용 | OOM과 cross-model 간섭 완화 |
 | logging | `--log-verbose=0` | 정상 traffic에서 로그 비용 최소화 |
@@ -51,8 +51,8 @@ sequenceDiagram
     participant Prod as Production Triton
     Dev->>CI: PR with config/model changes
     CI->>CI: validate.sh, pytest config, lint
-    CI->>CI: build model_repository
-    CI->>Stg: deploy with explicit mode
+    CI->>CI: build model_repository + serving image
+    CI->>Stg: deploy same image SHA with explicit mode
     Stg->>Stg: smoke, integration, perf baseline
     Dev->>Prod: approve release
     Prod->>Prod: rolling deploy / explicit load
@@ -63,6 +63,11 @@ Production workflow의 `image_tag`에는 `main`에 포함된 40자리 commit SHA
 그 SHA의 image뿐 아니라 같은 SHA의 Kustomize manifest와 smoke test를 checkout합니다. 승인
 화면에는 image SHA, model manifest revision, config 변경을 하나의 release 단위로 표시하고,
 branch 밖 commit이나 mutable tag는 production 입력으로 허용하지 않습니다.
+
+기본 pipeline은 model repository를 serving image에 포함하므로 image SHA 하나가 runtime과 모델
+세트를 함께 식별합니다. 대형 모델을 object storage/PVC로 분리하면 model revision과 checksum을
+release metadata에 추가하고, staging에서 검증한 바로 그 revision만 production이 읽게 해야
+합니다. `latest` 경로나 운영 중 덮어쓰는 공유 디렉토리는 rollback 단위로 사용하지 않습니다.
 
 ## Release checklist
 

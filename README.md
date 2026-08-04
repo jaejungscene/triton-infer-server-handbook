@@ -86,7 +86,7 @@ triton-inference-server/
 │       └── tabular/
 │           └── anomaly_detector/        # FIL (Forest Inference Library)
 │
-├── model_repository/                    # 런타임 마운트 대상 (Git 제외, CI가 생성)
+├── model_repository/                    # Git 제외 build output, serving image의 /models 입력
 │   └── .gitkeep
 │
 ├── configs/                             # 서버 레벨 설정 (환경별 + 기능별)

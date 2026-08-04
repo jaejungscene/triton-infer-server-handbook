@@ -348,3 +348,68 @@ class TestReleaseWorkflow:
         ):
             assert command in workflow, f"PR CI does not run {command}"
         assert "- 'monitoring/**'" in workflow
+
+
+class TestImmutableModelRelease:
+    """검증된 model repository가 release image와 함께 승격되는지 검사"""
+
+    def test_serving_image_packages_built_repository(self, project_root):
+        dockerfile = os.path.join(project_root, "deploy", "docker", "Dockerfile")
+        with open(dockerfile) as dockerfile_content:
+            contents = dockerfile_content.read()
+        assert "COPY model_repository/ /models/" in contents
+        assert "org.opencontainers.image.revision" in contents
+
+        dockerignore = os.path.join(project_root, ".dockerignore")
+        with open(dockerignore) as dockerignore_content:
+            ignore_rules = dockerignore_content.read()
+        assert "!model_repository/**" in ignore_rules
+
+    def test_ci_smoke_tests_the_bundled_repository(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-build-test.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+        start_step = workflow.split("- name: Start Triton server", 1)[1].split(
+            "- name: Wait for server ready", 1
+        )[0]
+        assert "VCS_REF=${{ github.sha }}" in workflow
+        assert "model_repository:/models" not in start_step
+
+    def test_kustomize_uses_image_models_unless_pvc_is_opted_in(
+        self, project_root
+    ):
+        base_dir = os.path.join(project_root, "deploy", "k8s", "base")
+        with open(os.path.join(base_dir, "deployment.yaml")) as deployment_file:
+            deployment = yaml.safe_load(deployment_file)
+        pod_spec = deployment["spec"]["template"]["spec"]
+        container = pod_spec["containers"][0]
+        assert container["image"] == "triton-server:local"
+        assert "volumeMounts" not in container
+        assert "volumes" not in pod_spec
+
+        component_dir = os.path.join(
+            project_root, "deploy", "k8s", "components", "model-pvc"
+        )
+        assert os.path.isfile(os.path.join(component_dir, "pvc.yaml"))
+        assert os.path.isfile(os.path.join(component_dir, "volume_patch.yaml"))
+        pvc_overlay = os.path.join(
+            project_root, "deploy", "k8s", "overlays", "dev-pvc", "kustomization.yaml"
+        )
+        with open(pvc_overlay) as overlay_file:
+            overlay = yaml.safe_load(overlay_file)
+        assert "../../components/model-pvc" in overlay["components"]
+
+    def test_helm_does_not_mask_bundled_models_by_default(self, project_root):
+        values_path = os.path.join(
+            project_root, "deploy", "helm", "triton", "values.yaml"
+        )
+        with open(values_path) as values_file:
+            values = yaml.safe_load(values_file)
+        assert values["image"] == {
+            "repository": "triton-server",
+            "tag": "local",
+            "pullPolicy": "IfNotPresent",
+        }
+        assert values["persistence"]["enabled"] is False

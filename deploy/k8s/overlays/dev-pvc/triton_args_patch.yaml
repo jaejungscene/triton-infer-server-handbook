@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton-server
+spec:
+  template:
+    spec:
+      containers:
+        - name: triton
+          args:
+            - tritonserver
+            - --model-repository=/models
+            - --strict-model-config=true
+            - --allow-metrics=true
+            - --allow-gpu-metrics=true
+            - --model-control-mode=poll
+            - --repository-poll-secs=5
+            - --log-verbose=2

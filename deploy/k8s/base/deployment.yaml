@@ -32,7 +32,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: triton
-          image: nvcr.io/nvidia/tritonserver:24.08-py3
+          image: triton-server:local
           args:
             - "tritonserver"
             - "--model-repository=/models"
@@ -46,10 +46,6 @@ spec:
               containerPort: 8001
             - name: metrics
               containerPort: 8002
-          volumeMounts:
-            - name: model-repository
-              mountPath: /models
-              readOnly: true
           resources:
             requests:
               cpu: "2"
@@ -88,10 +84,6 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
-      volumes:
-        - name: model-repository
-          persistentVolumeClaim:
-            claimName: triton-model-repository
       tolerations:
         - key: "nvidia.com/gpu"
           operator: "Exists"

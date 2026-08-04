@@ -71,6 +71,8 @@ jobs:
           push: false
           load: true
           tags: triton-server:test
+          build-args: |
+            VCS_REF=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -81,7 +83,6 @@ jobs:
             --name triton-test \
             --gpus all \
             -p 8000:8000 -p 8001:8001 -p 8002:8002 \
-            -v $(pwd)/model_repository:/models:ro \
             triton-server:test \
             --model-repository=/models \
             --model-control-mode=poll \
@@ -124,5 +125,7 @@ jobs:
           file: deploy/docker/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

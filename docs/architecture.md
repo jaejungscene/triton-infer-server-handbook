@@ -15,8 +15,9 @@ flowchart LR
     backend --> gpu["GPU / CPU"]
     triton --> metrics["Prometheus metrics :8002"]
     triton --> trace["OpenTelemetry trace"]
-    ci["CI/CD"] --> repo["model_repository"]
-    repo --> triton
+    ci["CI/CD"] --> repo["validated model_repository"]
+    repo --> image["immutable serving image"]
+    image --> triton
     metrics --> grafana["Grafana / Alertmanager"]
 ```
 
@@ -31,7 +32,7 @@ port는 외부 Ingress에 연결하지 않고 monitoring namespace에서만 수�
 | 단위 | 위치 | 역할 |
 |------|------|------|
 | 모델 소스 | `models/serving/**` | Git으로 관리하는 모델 설정, Python backend 코드, manifest |
-| 모델 레포지토리 | `model_repository/` | Triton이 실제로 읽는 런타임 디렉토리. CI/CD 또는 `scripts/build.sh`가 생성 |
+| 모델 레포지토리 | `model_repository/` | `scripts/build.sh`가 검증 후 staging하는 image build 입력 |
 | 서버 런타임 | `deploy/**`, `configs/**` | Docker, Helm, Kustomize, 서버 인자, 운영별 차이 |
 
 ## 요청 처리 경로
@@ -66,8 +67,14 @@ Decoupled streaming 모델은 HTTP나 일반 gRPC infer가 아니라 bi-directio
 1. PR에서 `config.pbtxt`, Python backend, manifest를 검증합니다.
 2. CI가 모델 바이너리 또는 외부 artifact를 확보합니다.
 3. `scripts/build.sh --env <env> --clean`으로 `model_repository/`를 생성합니다.
-4. staging에서 explicit load와 smoke/integration/perf test를 수행합니다.
-5. production은 승인 후 배포하고, 실패 시 Helm rollback 또는 이전 repository revision으로 되돌립니다.
+4. CI가 repository를 `/models`에 포함한 image를 commit SHA로 만들고 그 image를 smoke test합니다.
+5. staging에서 같은 SHA를 explicit load하고 integration/perf test를 수행합니다.
+6. production은 승인된 SHA를 배포하고 실패 시 이전 image로 되돌립니다.
+
+이 저장소의 기본 production 단위는 server runtime과 model repository를 함께 담은 immutable
+image입니다. 모델이 수십 GB라 registry 전송 비용이 더 큰 환경은 PVC/object storage를 쓸 수
+있지만, 그때는 model revision, checksum, 원자적 게시, rollback을 image와 별도로 구현해야
+합니다. 단순히 가변 PVC를 mount하는 것만으로는 재현 가능한 release가 되지 않습니다.
 
 ## 환경별 모델 제어 모드
 

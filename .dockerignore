@@ -17,9 +17,7 @@ __pycache__
 htmlcov
 .coverage
 
-# Runtime/build artifacts
-model_repository/*
-!model_repository/.gitkeep
+# Runtime/build artifacts (model_repository는 serving image에 포함)
 tests/perf/results
 *.log
 trace_output
@@ -49,3 +47,7 @@ kubeconfig
 *.lgbm
 *.pkl
 *.joblib
+
+# Serving image에는 build.sh가 staging한 artifact만 다시 포함합니다.
+!model_repository/
+!model_repository/**

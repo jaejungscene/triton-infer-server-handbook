@@ -58,7 +58,7 @@ jobs:
       - name: Update image tag
         run: |
           cd deploy/k8s/overlays/staging
-          kustomize edit set image nvcr.io/nvidia/tritonserver=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.workflow_run.head_sha }}
+          kustomize edit set image triton-server=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.workflow_run.head_sha }}
 
       - name: Deploy to staging
         run: |

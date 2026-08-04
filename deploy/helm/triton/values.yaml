@@ -4,8 +4,8 @@
 # ============================================================
 
 image:
-  repository: nvcr.io/nvidia/tritonserver
-  tag: "24.08-py3"
+  repository: triton-server
+  tag: local
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -80,9 +80,9 @@ resources:
     memory: "16Gi"
     nvidia.com/gpu: "1"
 
-# ----- 영속성 (모델 저장소 PVC) -----
+# ----- 외부 모델 저장소 PVC (기본은 image에 포함된 /models 사용) -----
 persistence:
-  enabled: true
+  enabled: false
   existingClaim: ""
   mountPath: /models
   size: 50Gi

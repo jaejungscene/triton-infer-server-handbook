@@ -106,7 +106,7 @@ jobs:
           echo "Deploying image tag: ${IMAGE_TAG}"
 
           cd deploy/k8s/overlays/prod
-          kustomize edit set image nvcr.io/nvidia/tritonserver=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
+          kustomize edit set image triton-server=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
 
           kustomize build . | kubectl apply -f -
           echo "applied=true" >> "${GITHUB_OUTPUT}"

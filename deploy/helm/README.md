@@ -28,6 +28,7 @@ helm install triton deploy/helm/triton \
 # prod 환경 (특정 이미지 태그 고정)
 helm upgrade --install triton deploy/helm/triton \
   -f deploy/helm/triton/values.prod.yaml \
+  --set image.repository=ghcr.io/your-org/triton-infer-server-handbook \
   --set image.tag=sha-abc1234 \
   --namespace triton
 ```
@@ -54,8 +55,8 @@ HPA가 계산한 replica 수를 다시 기본값으로 덮지 않게 하기 위�
 통과하기 전에는 liveness probe가 동작하지 않으며, 종료 시에는 preStop과 grace period로
 endpoint 전파 및 진행 중 요청 정리 시간을 확보합니다.
 
-기존 모델 PVC나 private registry를 사용하는 환경은 템플릿을 수정하지 않고 values로
-연결합니다.
+기본 chart는 `scripts/build.sh` 결과를 `/models`에 포함한 release image를 전제로 하며 PVC를
+마운트하지 않습니다. private registry나 외부 모델 PVC는 values로 명시합니다.
 
 ```yaml
 imagePullSecrets:
@@ -67,6 +68,9 @@ envFrom:
   - secretRef:
       name: triton-cloud-credentials
 ```
+
+PVC를 켜면 image의 `/models`가 가려집니다. PVC revision을 image SHA와 별도로 추적·검증하고
+원자적으로 게시하는 pipeline이 없는 경우에는 기본 image-bundled 방식을 유지합니다.
 
 staging/prod는 hostname 기준 topology spread를 기본 활성화합니다. GPU 여유 노드가 적은
 클러스터에서는 `whenUnsatisfiable: ScheduleAnyway`이므로 배포를 막지는 않으며, 강제 분산이
@@ -89,6 +93,7 @@ helm get values triton -n triton
 # 이미지 태그만 교체 (무중단 롤링 업데이트)
 helm upgrade triton deploy/helm/triton \
   -f deploy/helm/triton/values.prod.yaml \
+  --set image.repository=ghcr.io/your-org/triton-infer-server-handbook \
   --set image.tag=sha-newversion \
   --namespace triton
 
