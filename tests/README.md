@@ -53,11 +53,13 @@ readiness, BYTES input, label/confidence output 계약을 실제 inference로 �
 skip하고, 일단 ready인 모델의 연결·설정·inference 오류는 배포 실패로 처리합니다.
 
 성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,
+`tests/perf/profiles.json`의 input data·batch size·shape로 부하를 만든 다음
 `tests/perf/baseline.json`의 동일 concurrency 기준과 비교합니다. `perf_analyzer`의 latency
 CSV 값은 microsecond이므로 비교기가 millisecond로 변환합니다. 기준값은 GPU 종류, Triton
 버전, 모델 artifact와 입력 데이터에 종속되므로 production 적용 전 전용 runner에서 다시
 측정해 갱신해야 합니다. 기준선에 없는 모델이나 결과가 하나도 없는 실행은 성공으로
-간주하지 않습니다.
+간주하지 않습니다. 새 모델을 benchmark 대상에 추가할 때 profile과 baseline을 함께 추가해야
+하며, profile이 없는 ready 모델은 임의 random input으로 측정하지 않고 즉시 실패합니다.
 
 ## 환경변수
 

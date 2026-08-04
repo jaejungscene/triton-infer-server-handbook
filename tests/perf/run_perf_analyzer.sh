@@ -15,6 +15,7 @@ MODEL=""
 CONCURRENCY="1:8"
 RESULTS_DIR="${SCRIPT_DIR}/results"
 BASELINE="${SCRIPT_DIR}/baseline.json"
+PROFILES="${SCRIPT_DIR}/profiles.json"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -47,6 +48,19 @@ PERF_URL="${PERF_URL#https://}"
 
 run_perf() {
     local model_name="$1"
+    local profile_output
+    local -a profile_args
+
+    if ! profile_output=$(python3 "${SCRIPT_DIR}/profile_args.py" \
+        --profiles "${PROFILES}" \
+        --model "${model_name}" \
+        --perf-dir "${SCRIPT_DIR}"); then
+        return 1
+    fi
+    while IFS= read -r profile_arg; do
+        profile_args+=("${profile_arg}")
+    done <<< "${profile_output}"
+
     echo "=========================================="
     echo "[perf] Testing model: ${model_name}"
     echo "=========================================="
@@ -57,6 +71,7 @@ run_perf() {
         --percentile=95 \
         --concurrency-range="${CONCURRENCY}" \
         --measurement-interval=10000 \
+        "${profile_args[@]}" \
         -f "${RESULTS_DIR}/${model_name}_perf.csv" \
         2>&1 | tee "${RESULTS_DIR}/${model_name}_perf.log"
 
