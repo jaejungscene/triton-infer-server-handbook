@@ -196,18 +196,22 @@ class TestDeploymentRuntimeArgs:
                 f"{filename} must set the model repository"
             assert "--allow-metrics=true" in args, \
                 f"{filename} must expose Prometheus metrics"
+            if "--model-control-mode=explicit" in args:
+                assert "--load-model=*" in args, \
+                    f"{filename} explicit mode must bootstrap the validated model set"
 
     def test_kustomize_env_overlays_patch_runtime_args(self, project_root):
         overlay_expectations = {
             "dev": {"--model-control-mode=poll"},
-            "staging": {"--model-control-mode=explicit"},
+            "staging": {"--model-control-mode=explicit", "--load-model=*"},
             "prod": {
                 "--model-control-mode=explicit",
+                "--load-model=*",
                 "--cache-config=local,size=67108864",
                 "--rate-limit=execution_count",
             },
-            "multi-gpu": {"--model-control-mode=explicit"},
-            "multi-node": {"--model-control-mode=explicit"},
+            "multi-gpu": {"--model-control-mode=explicit", "--load-model=*"},
+            "multi-node": {"--model-control-mode=explicit", "--load-model=*"},
         }
         overlays_dir = os.path.join(project_root, "deploy", "k8s", "overlays")
 

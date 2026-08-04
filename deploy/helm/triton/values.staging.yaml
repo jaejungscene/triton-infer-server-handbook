@@ -12,6 +12,7 @@ tritonArgs:
   - --allow-metrics=true
   - --allow-gpu-metrics=true
   - --model-control-mode=explicit      # 명시적 로드만 허용
+  - --load-model=*                     # 배포 시 저장소의 모델을 초기 로드
   - --log-verbose=1
 
 resources:

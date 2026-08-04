@@ -44,6 +44,11 @@ helm upgrade --install triton deploy/helm/triton \
 `tritonserver`여야 하며, 그 뒤에 `--model-repository=/models` 같은 서버 플래그를
 나열합니다.
 
+staging/prod는 `explicit`와 `--load-model=*`를 함께 사용합니다. `explicit`만 지정하면
+시작 시 아무 모델도 로드되지 않으므로, 저장소 전체가 배포 승인 단위인 환경에서만 이
+조합을 사용합니다. 모델을 개별 승인하는 조직은 `--load-model=*`를 제거하고 배포 파이프라인의
+명시적 load 단계가 성공한 뒤에만 트래픽을 연결해야 합니다.
+
 HPA가 활성화되면 Deployment의 `spec.replicas`는 렌더링하지 않습니다. Helm upgrade가
 HPA가 계산한 replica 수를 다시 기본값으로 덮지 않게 하기 위한 설정입니다. startup probe가
 통과하기 전에는 liveness probe가 동작하지 않으며, 종료 시에는 preStop과 grace period로

@@ -30,7 +30,7 @@
 
 | 영역 | 권장값 | 이유 |
 |------|--------|------|
-| model control | `--model-control-mode=explicit` | 운영 중 부분 변경 감지 위험 제거 |
+| model control | `explicit` + 승인된 초기 모델 목록 | 시작 시 무모델 상태를 피하고 운영 중 변경은 API로 제한 |
 | repository | immutable artifact + revision | rollback 가능성 확보 |
 | cache | `--cache-config=local,size=...`부터 검증 | 기본 구현으로 효과 확인 후 확장 |
 | rate limiter | GPU memory가 빡빡한 모델부터 적용 | OOM과 cross-model 간섭 완화 |

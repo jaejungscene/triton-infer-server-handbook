@@ -14,6 +14,7 @@ spec:
             - --allow-metrics=true
             - --allow-gpu-metrics=true
             - --model-control-mode=explicit
+            - --load-model=*
             - --log-verbose=0
             - --http-thread-count=8
             - --grpc-infer-thread-count=8

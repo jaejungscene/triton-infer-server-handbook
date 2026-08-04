@@ -55,5 +55,10 @@ Helm도 동일하게 `values*.yaml`의 `tritonArgs`로 실행 인자를 주입�
 | 환경 | 핵심 인자 | 목적 |
 |------|-----------|------|
 | dev | `--model-control-mode=poll`, `--repository-poll-secs=5` | 모델 수정 후 빠른 재로드 |
-| staging | `--model-control-mode=explicit`, `--log-verbose=1` | 운영과 같은 로드 정책으로 검증 |
-| prod | explicit, cache, rate-limit, thread count | 예측 가능한 배포와 처리량 튜닝 |
+| staging | `explicit`, `--load-model=*`, `--log-verbose=1` | 검증된 저장소 전체를 시작 시 로드하고 이후 변경은 API로 제한 |
+| prod | `explicit`, `--load-model=*`, cache, rate-limit | 배포 직후 서비스 가능한 모델 세트와 예측 가능한 변경 정책 확보 |
+
+`explicit`만 지정하면 Triton은 시작 시 모델을 하나도 로드하지 않습니다. 이 예시는 배포
+artifact 자체가 승인된 모델 세트라는 전제에서 `--load-model=*`를 함께 사용합니다. 모델별
+승인을 따로 운영한다면 이 옵션을 제거하고 rollout 전에 `scripts/model_control/load.sh`로
+필수 모델을 로드하는 별도 배포 단계를 두어야 합니다.

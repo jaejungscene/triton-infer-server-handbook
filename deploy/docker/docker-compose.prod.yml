@@ -25,6 +25,7 @@ services:
       tritonserver
         --model-repository=/models
         --model-control-mode=explicit
+        --load-model=*
         --strict-model-config=true
         --log-verbose=0
         --allow-metrics=true
