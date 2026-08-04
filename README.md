@@ -378,6 +378,9 @@ main merge → ci-build-test (빌드 + smoke test + GHCR push)
 수동 승인 → cd-production (prod 배포 + perf baseline 비교)
 ```
 
+Production 배포 입력은 `main`에 포함된 40자리 commit SHA입니다. workflow는 해당 SHA의
+image, Kustomize manifest, smoke test를 같은 revision으로 묶어 실행합니다.
+
 ---
 
 ## Troubleshooting

@@ -59,6 +59,11 @@ sequenceDiagram
     Prod->>Prod: monitor alerts and stats
 ```
 
+Production workflow의 `image_tag`에는 `main`에 포함된 40자리 commit SHA만 넣습니다. workflow는
+그 SHA의 image뿐 아니라 같은 SHA의 Kustomize manifest와 smoke test를 checkout합니다. 승인
+화면에는 image SHA, model manifest revision, config 변경을 하나의 release 단위로 표시하고,
+branch 밖 commit이나 mutable tag는 production 입력으로 허용하지 않습니다.
+
 ## Release checklist
 
 배포 전:

@@ -314,3 +314,19 @@ class TestDeploymentRuntimeArgs:
         assert helm_values["updateStrategy"]["rollingUpdate"]["maxUnavailable"] == 0
         assert helm_values["automountServiceAccountToken"] is False
         assert helm_values["startupProbe"]["failureThreshold"] >= 30
+
+
+class TestReleaseWorkflow:
+    """배포 image와 manifest/test revision이 어긋나지 않는지 검사"""
+
+    def test_production_checks_out_requested_main_revision(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "cd-production.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "ref: ${{ github.event.inputs.image_tag }}" in workflow
+        assert "fetch-depth: 0" in workflow
+        assert 'git merge-base --is-ancestor "${IMAGE_TAG}" origin/main' in workflow
+        assert 'test "$(git rev-parse HEAD)" = "${IMAGE_TAG}"' in workflow
