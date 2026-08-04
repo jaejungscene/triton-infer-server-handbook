@@ -44,9 +44,7 @@ class TestResponseCache:
     def test_cache_metrics(self, triton_metrics_url):
         """캐시 메트릭이 Prometheus에 노출되는지 확인"""
         response = requests.get(f"{triton_metrics_url}/metrics", timeout=10)
-
-        if response.status_code != 200:
-            pytest.skip("Metrics endpoint not available")
+        response.raise_for_status()
 
         # 캐시 메트릭이 존재하면 캐시가 활성화된 것
         has_cache_metrics = "nv_cache" in response.text

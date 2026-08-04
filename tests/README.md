@@ -47,6 +47,11 @@ docker run --rm \
 Smoke test는 Repository Index API에서 ready 모델이 최소 하나 확인되어야 통과합니다.
 서버 health endpoint만 200이고 모델이 하나도 로드되지 않은 상태는 배포 성공으로 보지 않습니다.
 
+Integration suite의 `test_text_classifier.py`는 기본 manifest의 필수 E2E gate입니다. 모델
+readiness, BYTES input, label/confidence output 계약을 실제 inference로 확인하며 실패를 skip하지
+않습니다. LLM/vision처럼 manifest에서 기본 비활성인 선택 모델은 로드되지 않았을 때만
+skip하고, 일단 ready인 모델의 연결·설정·inference 오류는 배포 실패로 처리합니다.
+
 성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,
 `tests/perf/baseline.json`의 동일 concurrency 기준과 비교합니다. `perf_analyzer`의 latency
 CSV 값은 microsecond이므로 비교기가 millisecond로 변환합니다. 기준값은 GPU 종류, Triton
