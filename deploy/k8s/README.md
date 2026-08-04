@@ -43,6 +43,7 @@ kubectl port-forward -n production svc/triton-server 8000:8000 8001:8001 8002:80
 | rollout | `maxUnavailable: 0`, startup probe | 모델 로딩 중 재시작을 막고 기존 replica를 유지한 채 교체 |
 | 종료 | 10초 preStop + 60초 grace period | endpoint 전파와 진행 중 요청 종료 시간을 확보 |
 | Pod 권한 | SA token 미마운트, capability 제거 | Kubernetes API와 Linux capability가 필요 없는 추론 Pod의 공격 표면 축소 |
+| NetworkPolicy | staging/prod ingress 제한 | 같은 namespace, ingress controller, monitoring 외의 직접 접근 차단 |
 | PVC | ReadWriteMany | 여러 pod이 같은 모델 공유 |
 | GPU 스케줄링 | tolerations + nodeSelector | GPU 노드에만 배치 |
 | 스케일링 | HPA (GPU utilization) | GPU 사용률 기반 자동 스케일링 |
@@ -62,3 +63,8 @@ Helm도 동일하게 `values*.yaml`의 `tritonArgs`로 실행 인자를 주입�
 artifact 자체가 승인된 모델 세트라는 전제에서 `--load-model=*`를 함께 사용합니다. 모델별
 승인을 따로 운영한다면 이 옵션을 제거하고 rollout 전에 `scripts/model_control/load.sh`로
 필수 모델을 로드하는 별도 배포 단계를 두어야 합니다.
+
+staging/prod의 NetworkPolicy는 ingress controller가 `ingress-nginx`, Prometheus가
+`monitoring` namespace에 있다고 가정합니다. 실제 namespace가 다르면
+`network_policy.yaml`의 selector를 먼저 바꾸십시오. 사용 중인 CNI가 NetworkPolicy를
+지원하는지와 ingress controller가 host network를 쓰는지도 staging에서 확인해야 합니다.

@@ -6,6 +6,7 @@ namespace: staging
 resources:
   - ../../base
   - namespace.yaml
+  - network_policy.yaml
 
 patches:
   - path: replica_patch.yaml

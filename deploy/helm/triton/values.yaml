@@ -60,6 +60,15 @@ service:
   grpcPort: 8001
   metricsPort: 8002
 
+# ----- 네트워크 접근 제어 -----
+networkPolicy:
+  enabled: false
+  allowSameNamespace: true
+  ingressNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-nginx
+  monitoringNamespaceSelector:
+    kubernetes.io/metadata.name: monitoring
+
 # ----- 리소스 -----
 resources:
   requests:

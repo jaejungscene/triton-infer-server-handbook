@@ -32,5 +32,8 @@ pdb:
   enabled: true
   minAvailable: 1
 
+networkPolicy:
+  enabled: true
+
 topologySpread:
   enabled: true

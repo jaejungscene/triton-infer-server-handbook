@@ -72,6 +72,11 @@ staging/prod는 hostname 기준 topology spread를 기본 활성화합니다. GP
 클러스터에서는 `whenUnsatisfiable: ScheduleAnyway`이므로 배포를 막지는 않으며, 강제 분산이
 필요하면 `DoNotSchedule`로 바꾸고 GPU 용량을 먼저 확보합니다.
 
+staging/prod는 NetworkPolicy도 활성화합니다. 기본값은 같은 namespace의 Pod, 이름이
+`ingress-nginx`인 namespace의 HTTP/gRPC, 이름이 `monitoring`인 namespace의 metrics 접근만
+허용합니다. 클러스터 구성이 다르면 `networkPolicy.*NamespaceSelector`를 배포 전에
+조정해야 하며, 정책을 적용한 뒤 inference와 scrape를 각각 확인합니다.
+
 ## 주요 배포 명령어
 
 ```bash

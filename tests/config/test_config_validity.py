@@ -237,6 +237,22 @@ class TestDeploymentRuntimeArgs:
             assert expected_args.issubset(set(args)), \
                 f"{overlay} overlay missing expected args: {expected_args - set(args)}"
 
+    def test_restricted_overlays_include_network_policy(self, project_root):
+        overlays_dir = os.path.join(project_root, "deploy", "k8s", "overlays")
+
+        for overlay in ("staging", "prod"):
+            overlay_dir = os.path.join(overlays_dir, overlay)
+            kustomization = self._load_yaml(
+                os.path.join(overlay_dir, "kustomization.yaml")
+            )
+            assert "network_policy.yaml" in kustomization.get("resources", [])
+
+            policy = self._load_yaml(os.path.join(overlay_dir, "network_policy.yaml"))
+            assert policy["kind"] == "NetworkPolicy"
+            assert policy["spec"]["policyTypes"] == ["Ingress"]
+            assert policy["spec"]["podSelector"]["matchLabels"]["app"] == \
+                "triton-server"
+
     def test_http_and_grpc_use_separate_ingresses(self, project_root):
         base_dir = os.path.join(project_root, "deploy", "k8s", "base")
         http_ingress = self._load_yaml(os.path.join(base_dir, "ingress-http.yaml"))
