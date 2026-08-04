@@ -330,3 +330,21 @@ class TestReleaseWorkflow:
         assert "fetch-depth: 0" in workflow
         assert 'git merge-base --is-ancestor "${IMAGE_TAG}" origin/main' in workflow
         assert 'test "$(git rev-parse HEAD)" = "${IMAGE_TAG}"' in workflow
+
+    def test_pr_ci_validates_all_deployment_formats(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-validate.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        for command in (
+            "kustomize build",
+            "helm lint",
+            "helm template",
+            "docker compose",
+            "promtool",
+            "bash -n",
+        ):
+            assert command in workflow, f"PR CI does not run {command}"
+        assert "- 'monitoring/**'" in workflow

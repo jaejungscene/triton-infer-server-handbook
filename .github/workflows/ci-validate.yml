@@ -17,6 +17,7 @@ on:
       - 'client/**'
       - 'tests/**'
       - 'deploy/**'
+      - 'monitoring/**'
       - '.github/**'
       - 'requirements*.txt'
 
@@ -80,8 +81,8 @@ jobs:
           dockerfile: deploy/docker/Dockerfile.converter
           failure-threshold: warning
 
-  lint-k8s:
-    name: Validate Kubernetes manifests
+  validate-deployments:
+    name: Validate Deployment Assets
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -90,9 +91,44 @@ jobs:
       - name: Setup kustomize
         uses: imranismail/setup-kustomize@v2
 
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
       - name: Validate overlays
         run: |
           for overlay in deploy/k8s/overlays/*/; do
             echo "Validating: ${overlay}"
             kustomize build "${overlay}" > /dev/null
           done
+
+      - name: Validate Helm chart
+        run: |
+          helm lint deploy/helm/triton
+          for values in deploy/helm/triton/values.{dev,staging,prod}.yaml; do
+            echo "Validating: ${values}"
+            helm lint deploy/helm/triton -f "${values}"
+            helm template triton deploy/helm/triton -f "${values}" > /dev/null
+          done
+
+      - name: Validate Docker Compose
+        run: |
+          docker compose -f deploy/docker/docker-compose.yml config --quiet
+          GRAFANA_ADMIN_PASSWORD=ci-validation \
+            docker compose -f deploy/docker/docker-compose.prod.yml config --quiet
+
+      - name: Validate Prometheus config and rules
+        run: |
+          docker run --rm --entrypoint /bin/promtool \
+            -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v3.13.0 \
+            check config /etc/prometheus/scrape_config.yml
+          docker run --rm --entrypoint /bin/promtool \
+            -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v3.13.0 \
+            check rules /etc/prometheus/triton_rules.yml
+
+      - name: Validate shell syntax
+        run: |
+          while IFS= read -r -d '' script; do
+            bash -n "${script}"
+          done < <(find scripts tests -type f -name '*.sh' -print0)
