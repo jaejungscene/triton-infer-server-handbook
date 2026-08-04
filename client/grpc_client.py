@@ -18,7 +18,7 @@ HTTP 대비 낮은 latency, 높은 throughput. 서비스 간 통신에 권장.
 
 import numpy as np
 
-from .base import BaseTritonClient, TritonConfig
+from .base import BaseTritonClient, TritonConfig, grpc_tls_kwargs
 
 
 class TritonGRPCClient(BaseTritonClient):
@@ -28,36 +28,43 @@ class TritonGRPCClient(BaseTritonClient):
         super().__init__(config or TritonConfig())
         import tritonclient.grpc as grpcclient
 
-        ssl_options = None
-        if self.config.ssl:
-            root_cert = None
-            if self.config.ssl_root_cert:
-                with open(self.config.ssl_root_cert, "rb") as f:
-                    root_cert = f.read()
-            ssl_options = grpcclient.SslOptions(root_certificates=root_cert)
-
         self._client = grpcclient.InferenceServerClient(
             url=self.config.grpc_url,
             verbose=self.config.verbose,
             ssl=self.config.ssl,
-            ssl_options=ssl_options,
+            **grpc_tls_kwargs(self.config),
         )
         self._grpcclient = grpcclient
 
     def is_server_ready(self) -> bool:
-        return self._client.is_server_ready()
+        return self._client.is_server_ready(
+            headers=self.config.headers,
+            client_timeout=self.config.timeout,
+        )
 
     def is_model_ready(self, model_name: str, model_version: str = "") -> bool:
-        return self._client.is_model_ready(model_name, model_version)
+        return self._client.is_model_ready(
+            model_name,
+            model_version,
+            headers=self.config.headers,
+            client_timeout=self.config.timeout,
+        )
 
     def get_model_metadata(self, model_name: str, model_version: str = ""):
-        return self._client.get_model_metadata(model_name, model_version)
+        return self._client.get_model_metadata(
+            model_name,
+            model_version,
+            headers=self.config.headers,
+            client_timeout=self.config.timeout,
+        )
 
     def infer(self, model_name: str, inputs: list, outputs: list, **kwargs):
         return self._client.infer(
             model_name=model_name,
             inputs=inputs,
             outputs=outputs,
+            headers=self.config.headers,
+            client_timeout=self.config.timeout,
             request_id=kwargs.get("request_id", ""),
             model_version=kwargs.get("model_version", ""),
         )

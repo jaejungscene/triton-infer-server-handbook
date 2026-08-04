@@ -6,3 +6,4 @@ resources:
 
 patches:
   - path: deployment_patch.yaml
+  - path: triton_args_patch.yaml

@@ -1,0 +1,7 @@
+{
+  "data": [
+    {"INPUT_TEXT": ["good and stable inference"]},
+    {"INPUT_TEXT": ["bad and slow response"]},
+    {"INPUT_TEXT": ["ordinary production request"]}
+  ]
+}

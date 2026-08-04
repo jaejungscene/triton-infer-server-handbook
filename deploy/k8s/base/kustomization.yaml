@@ -4,9 +4,6 @@ kind: Kustomization
 resources:
   - deployment.yaml
   - service.yaml
-  - configmap.yaml
-  - pvc.yaml
-  - ingress.yaml
 
 labels:
   - includeSelectors: true

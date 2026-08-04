@@ -20,7 +20,10 @@
 `enabled: true`로 전환합니다.
 
 ```bash
-# 1. 환경설정
+# 1. 검증 도구와 환경설정
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-dev.txt
 cp .env.example .env.dev
 
 # 2. 모델 빌드 (models/serving/ → model_repository/)
@@ -83,7 +86,7 @@ triton-inference-server/
 │       └── tabular/
 │           └── anomaly_detector/        # FIL (Forest Inference Library)
 │
-├── model_repository/                    # 런타임 마운트 대상 (Git 제외, CI가 생성)
+├── model_repository/                    # Git 제외 build output, serving image의 /models 입력
 │   └── .gitkeep
 │
 ├── configs/                             # 서버 레벨 설정 (환경별 + 기능별)
@@ -120,7 +123,7 @@ triton-inference-server/
 │   └── model_control/                   # 런타임 모델 관리 (서버 재시작 불필요)
 │       ├── load.sh                      # POST /v2/repository/models/{name}/load
 │       ├── unload.sh                    # POST /v2/repository/models/{name}/unload
-│       └── reload.sh                    # unload → load 순차 실행 (무중단 교체)
+│       └── reload.sh                    # artifact 게시 후 unload → load, ready 검증
 │
 ├── client/                              # Triton 클라이언트 라이브러리
 │   ├── base.py                          # 추상 기본 클라이언트
@@ -150,7 +153,6 @@ triton-inference-server/
 │   │           ├── _helpers.tpl         # 이름·레이블 생성 헬퍼
 │   │           ├── deployment.yaml      # Triton Pod 스펙 (GPU tolerations)
 │   │           ├── service.yaml         # ClusterIP (HTTP 8000, gRPC 8001, metrics 8002)
-│   │           ├── configmap.yaml       # 서버 인수 주입
 │   │           ├── hpa.yaml             # HorizontalPodAutoscaler (CPU / GPU 메트릭)
 │   │           ├── pvc.yaml             # PersistentVolumeClaim (50Gi, ReadWriteMany)
 │   │           └── pdb.yaml             # PodDisruptionBudget (minAvailable)
@@ -159,7 +161,6 @@ triton-inference-server/
 │       ├── base/                        # 기본 매니페스트
 │       │   ├── deployment.yaml
 │       │   ├── service.yaml
-│       │   ├── configmap.yaml
 │       │   ├── pvc.yaml
 │       │   └── kustomization.yaml
 │       └── overlays/
@@ -171,7 +172,7 @@ triton-inference-server/
 │
 ├── monitoring/                          # 메트릭·트레이싱·알림
 │   ├── prometheus/
-│   │   ├── scrape_config.yml            # triton-server:8002/metrics 스크랩 설정
+│   │   ├── scrape_config.yml            # Compose 서비스 triton:8002/metrics 스크랩 설정
 │   │   └── triton_rules.yml             # 알림 규칙 (latency, error rate, GPU 사용률 등)
 │   ├── grafana/
 │   │   └── triton_dashboard.json        # 사전 구성된 Grafana 대시보드
@@ -218,9 +219,9 @@ triton-inference-server/
 
 | 문서 | 내용 |
 |------|------|
-| [Architecture](docs/architecture.md) | 요청 처리 경로, 모델 레포지토리 전략, serving 패턴, 관측성 |
-| [Production Adoption](docs/production-adoption.md) | production 도입 단계, release checklist, rollback 기준 |
-| [Practical Scenarios](docs/scenarios.md) | 단일 모델, ensemble, GPU OOM, cache, LLM streaming, release 시나리오 |
+| [Triton 서빙 아키텍처](docs/architecture.md) | 요청 처리 경로, 모델 레포지토리 전략, serving 패턴, 관측성 |
+| [Production 도입 가이드](docs/production-adoption.md) | production 도입 단계, release checklist, rollback 기준 |
+| [실무 시나리오](docs/scenarios.md) | 단일 모델, ensemble, GPU OOM, cache, LLM streaming, release 시나리오 |
 
 핵심 운영 원칙은 단순합니다.
 
@@ -376,6 +377,9 @@ main merge → ci-build-test (빌드 + smoke test + GHCR push)
     ↓
 수동 승인 → cd-production (prod 배포 + perf baseline 비교)
 ```
+
+Production 배포 입력은 `main`에 포함된 40자리 commit SHA입니다. workflow는 해당 SHA의
+image, Kustomize manifest, smoke test를 같은 revision으로 묶어 실행합니다.
 
 ---
 

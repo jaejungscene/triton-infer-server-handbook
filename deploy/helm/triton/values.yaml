@@ -4,14 +4,49 @@
 # ============================================================
 
 image:
-  repository: nvcr.io/nvidia/tritonserver
-  tag: "24.08-py3"
+  repository: triton-server
+  tag: local
   pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+priorityClassName: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8002"
+  prometheus.io/path: /metrics
+podLabels: {}
 
 replicaCount: 1
 
+minReadySeconds: 10
+progressDeadlineSeconds: 900
+terminationGracePeriodSeconds: 60
+automountServiceAccountToken: false
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+lifecycle:
+  preStop:
+    exec:
+      command: ["/bin/sh", "-c", "sleep 10"]
+
 # ----- Triton 서버 인수 -----
 tritonArgs:
+  - tritonserver
   - --model-repository=/models
   - --strict-model-config=true
   - --allow-metrics=true
@@ -25,6 +60,15 @@ service:
   grpcPort: 8001
   metricsPort: 8002
 
+# ----- 네트워크 접근 제어 -----
+networkPolicy:
+  enabled: false
+  allowSameNamespace: true
+  ingressNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-nginx
+  monitoringNamespaceSelector:
+    kubernetes.io/metadata.name: monitoring
+
 # ----- 리소스 -----
 resources:
   requests:
@@ -36,11 +80,14 @@ resources:
     memory: "16Gi"
     nvidia.com/gpu: "1"
 
-# ----- 영속성 (모델 저장소 PVC) -----
+# ----- 외부 모델 저장소 PVC (기본은 image에 포함된 /models 사용) -----
 persistence:
-  enabled: true
+  enabled: false
+  existingClaim: ""
+  mountPath: /models
   size: 50Gi
   accessMode: ReadWriteMany
+  annotations: {}
   # storageClassName: ""   # 클러스터 환경에 맞게 설정
 
 # ----- HPA (수평 파드 자동 확장) -----
@@ -64,19 +111,40 @@ tolerations:
     operator: "Exists"
     effect: "NoSchedule"
 
+affinity: {}
+topologySpread:
+  enabled: false
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+# Secret/ConfigMap 기반 cloud repository 인증 등에 사용
+env: []
+envFrom: []
+extraVolumeMounts: []
+extraVolumes: []
+
 # ----- 프로브 -----
 livenessProbe:
   httpGet:
     path: /v2/health/live
     port: 8000
-  initialDelaySeconds: 60
   periodSeconds: 30
+  timeoutSeconds: 5
   failureThreshold: 3
 
 readinessProbe:
   httpGet:
     path: /v2/health/ready
     port: 8000
-  initialDelaySeconds: 60
-  periodSeconds: 15
+  periodSeconds: 5
+  timeoutSeconds: 3
   failureThreshold: 3
+
+startupProbe:
+  httpGet:
+    path: /v2/health/live
+    port: 8000
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30

@@ -34,11 +34,32 @@ pytest tests/integration/ \
   --triton-metrics-url http://localhost:8002
 
 # Performance test
-./tests/perf/run_perf_analyzer.sh
+docker run --rm \
+  --add-host host.docker.internal:host-gateway \
+  -e TRITON_URL=host.docker.internal:8000 \
+  -v "$PWD:/workspace" -w /workspace \
+  nvcr.io/nvidia/tritonserver:24.08-py3-sdk \
+  ./tests/perf/run_perf_analyzer.sh
 ```
 
 `tests/config/`는 Triton 서버가 없어도 실행됩니다. `tests/smoke/`와
 `tests/integration/`은 이미 기동 중인 Triton 서버가 필요합니다.
+Smoke test는 Repository Index API에서 ready 모델이 최소 하나 확인되어야 통과합니다.
+서버 health endpoint만 200이고 모델이 하나도 로드되지 않은 상태는 배포 성공으로 보지 않습니다.
+
+Integration suite의 `test_text_classifier.py`는 기본 manifest의 필수 E2E gate입니다. 모델
+readiness, BYTES input, label/confidence output 계약을 실제 inference로 확인하며 실패를 skip하지
+않습니다. LLM/vision처럼 manifest에서 기본 비활성인 선택 모델은 로드되지 않았을 때만
+skip하고, 일단 ready인 모델의 연결·설정·inference 오류는 배포 실패로 처리합니다.
+
+성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,
+`tests/perf/profiles.json`의 input data·batch size·shape로 부하를 만든 다음
+`tests/perf/baseline.json`의 동일 concurrency 기준과 비교합니다. `perf_analyzer`의 latency
+CSV 값은 microsecond이므로 비교기가 millisecond로 변환합니다. 기준값은 GPU 종류, Triton
+버전, 모델 artifact와 입력 데이터에 종속되므로 production 적용 전 전용 runner에서 다시
+측정해 갱신해야 합니다. 기준선에 없는 모델이나 결과가 하나도 없는 실행은 성공으로
+간주하지 않습니다. 새 모델을 benchmark 대상에 추가할 때 profile과 baseline을 함께 추가해야
+하며, profile이 없는 ready 모델은 임의 random input으로 측정하지 않고 즉시 실패합니다.
 
 ## 환경변수
 

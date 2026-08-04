@@ -6,11 +6,13 @@
 replicaCount: 2
 
 tritonArgs:
+  - tritonserver
   - --model-repository=/models
   - --strict-model-config=true
   - --allow-metrics=true
   - --allow-gpu-metrics=true
   - --model-control-mode=explicit      # 명시적 로드만 허용
+  - --load-model=*                     # 배포 시 저장소의 모델을 초기 로드
   - --log-verbose=1
 
 resources:
@@ -29,3 +31,9 @@ autoscaling:
 pdb:
   enabled: true
   minAvailable: 1
+
+networkPolicy:
+  enabled: true
+
+topologySpread:
+  enabled: true

@@ -1,0 +1,14 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: triton-grpc
+  annotations:
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: triton-ingress-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Triton inference authentication required"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+    - hosts:
+        - triton-grpc.example.com
+      secretName: triton-tls-secret

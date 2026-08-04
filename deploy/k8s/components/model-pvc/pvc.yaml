@@ -8,5 +8,4 @@ spec:
   resources:
     requests:
       storage: 50Gi
-  # storageClassName: 환경에 맞는 StorageClass 지정
   # storageClassName: nfs-client

@@ -7,6 +7,7 @@
 
 # Explicit 모드: 운영에서는 poll 금지 — 의도하지 않은 모델 교체 방지
 --model-control-mode=explicit
+--load-model=*
 
 # Response Cache (64MB): 반복 요청이 많은 서비스에서 latency 절감
 # 서비스 특성에 따라 local → redis로 전환 가능

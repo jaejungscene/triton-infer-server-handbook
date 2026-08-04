@@ -24,16 +24,16 @@ class TestLLMStreaming:
         try:
             if not client._client.is_model_ready("llm_vllm"):
                 pytest.skip("llm_vllm model not loaded")
-        except Exception:
-            pytest.skip("Cannot connect to Triton gRPC")
+        except Exception as exc:
+            pytest.fail(f"Cannot connect to Triton gRPC: {exc}")
 
         tokens = []
         try:
-            for token in client.stream_infer("llm_vllm", "Hello", max_tokens=5):
+            for token in client.stream_generate_vllm(
+                "llm_vllm", "Hello", max_tokens=5
+            ):
                 tokens.append(token)
                 assert isinstance(token, str)
-        except Exception as e:
-            pytest.skip(f"Streaming inference not available: {e}")
         finally:
             client.close()
 
@@ -49,11 +49,12 @@ class TestLLMStreaming:
         client = grpcclient.InferenceServerClient(url=triton_grpc_url)
 
         try:
-            if not client.is_model_ready("llm_vllm"):
-                pytest.skip("llm_vllm model not loaded")
+            model_ready = client.is_model_ready("llm_vllm")
+        except Exception as exc:
+            pytest.fail(f"Cannot connect to Triton gRPC: {exc}")
+        if not model_ready:
+            pytest.skip("llm_vllm model not loaded")
 
-            config = client.get_model_config("llm_vllm")
-            # Decoupled 모델은 model_transaction_policy.decoupled = true
-            assert config.config.model_transaction_policy.decoupled is True
-        except Exception as e:
-            pytest.skip(f"Cannot verify model config: {e}")
+        config = client.get_model_config("llm_vllm")
+        # Decoupled 모델은 model_transaction_policy.decoupled = true
+        assert config.config.model_transaction_policy.decoupled is True

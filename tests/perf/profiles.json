@@ -1,0 +1,25 @@
+{
+  "models": {
+    "text_classifier": {
+      "input_data": "inputs/text_classifier.json",
+      "batch_size": 1
+    },
+    "resnet50": {
+      "input_data": "zero",
+      "batch_size": 16
+    },
+    "yolox": {
+      "input_data": "zero",
+      "batch_size": 8
+    },
+    "od_pipeline": {
+      "input_data": "zero",
+      "batch_size": 1,
+      "shapes": ["RAW_IMAGE:640,640,3"]
+    },
+    "anomaly_detector": {
+      "input_data": "zero",
+      "batch_size": 4096
+    }
+  }
+}

@@ -2,8 +2,9 @@
 # Staging Config — 스테이징 환경
 # =============================================================================
 
-# Explicit 모드: 모델 로드/언로드를 API로만 제어
+# Explicit 모드: 시작 시 현재 저장소를 로드하고 이후 변경은 API로만 제어
 --model-control-mode=explicit
+--load-model=*
 
 # Cache 활성화 (운영 전 검증용)
 --cache-config=local,size=33554432

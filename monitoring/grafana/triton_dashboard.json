@@ -3,7 +3,8 @@
     "list": []
   },
   "description": "Triton Inference Server Monitoring Dashboard",
-  "editable": true,
+  "editable": false,
+  "datasource": {"type": "prometheus", "uid": "prometheus"},
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
   "links": [],
@@ -14,38 +15,38 @@
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
       "targets": [
         {
-          "expr": "rate(nv_inference_request_success[5m])",
+          "expr": "sum by (model, version) (rate(nv_inference_request_success[5m]))",
           "legendFormat": "{{ model }}"
         }
       ]
     },
     {
-      "title": "Latency p50 / p95 / p99 (ms)",
+      "title": "Average Request / Queue Latency (ms)",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(nv_inference_request_duration_us_bucket[5m])) by (le, model)) / 1000",
-          "legendFormat": "p50 {{ model }}"
+          "expr": "sum by (model, version) (rate(nv_inference_request_duration_us[5m])) / sum by (model, version) (rate(nv_inference_request_success[5m])) / 1000",
+          "legendFormat": "request {{ model }} v{{ version }}"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(nv_inference_request_duration_us_bucket[5m])) by (le, model)) / 1000",
-          "legendFormat": "p95 {{ model }}"
-        },
-        {
-          "expr": "histogram_quantile(0.99, sum(rate(nv_inference_request_duration_us_bucket[5m])) by (le, model)) / 1000",
-          "legendFormat": "p99 {{ model }}"
+          "expr": "sum by (model, version) (rate(nv_inference_queue_duration_us[5m])) / sum by (model, version) (rate(nv_inference_request_success[5m])) / 1000",
+          "legendFormat": "queue {{ model }} v{{ version }}"
         }
       ]
     },
     {
-      "title": "Queue Depth",
+      "title": "Inference / Execution Rate",
       "type": "timeseries",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
       "targets": [
         {
-          "expr": "nv_inference_pending_request_count",
-          "legendFormat": "{{ model }}"
+          "expr": "sum by (model, version) (rate(nv_inference_count[5m]))",
+          "legendFormat": "inference {{ model }}"
+        },
+        {
+          "expr": "sum by (model, version) (rate(nv_inference_exec_count[5m]))",
+          "legendFormat": "execution {{ model }}"
         }
       ]
     },
@@ -77,7 +78,7 @@
       "gridPos": {"h": 4, "w": 6, "x": 0, "y": 16},
       "targets": [
         {
-          "expr": "rate(nv_cache_num_hits_per_model[5m]) / (rate(nv_cache_num_hits_per_model[5m]) + rate(nv_cache_num_misses_per_model[5m]))",
+          "expr": "sum by (model, version) (rate(nv_cache_num_hits_per_model[5m])) / (sum by (model, version) (rate(nv_cache_num_hits_per_model[5m])) + sum by (model, version) (rate(nv_cache_num_misses_per_model[5m])))",
           "legendFormat": "{{ model }}"
         }
       ]
@@ -88,7 +89,7 @@
       "gridPos": {"h": 4, "w": 6, "x": 6, "y": 16},
       "targets": [
         {
-          "expr": "rate(nv_inference_request_failure[5m])",
+          "expr": "sum by (model, version) (rate(nv_inference_request_failure[5m])) / (sum by (model, version) (rate(nv_inference_request_success[5m])) + sum by (model, version) (rate(nv_inference_request_failure[5m])))",
           "legendFormat": "{{ model }}"
         }
       ]
@@ -98,6 +99,7 @@
   "tags": ["triton", "inference", "gpu"],
   "templating": {"list": []},
   "time": {"from": "now-1h", "to": "now"},
+  "refresh": "30s",
   "title": "Triton Inference Server",
   "uid": "triton-dashboard"
 }

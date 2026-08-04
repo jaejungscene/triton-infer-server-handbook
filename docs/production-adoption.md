@@ -1,4 +1,4 @@
-# Production Adoption Guide
+# Production 도입 가이드
 
 이 문서는 이 저장소를 실제 production serving에 도입할 때의 결정 순서와 운영 기준을
 정리합니다. 모든 팀이 처음부터 전체 구성을 쓸 필요는 없습니다. 아래 maturity 단계를
@@ -30,8 +30,8 @@
 
 | 영역 | 권장값 | 이유 |
 |------|--------|------|
-| model control | `--model-control-mode=explicit` | 운영 중 부분 변경 감지 위험 제거 |
-| repository | immutable artifact + revision | rollback 가능성 확보 |
+| model control | `explicit` + 승인된 초기 모델 목록 | 시작 시 무모델 상태를 피하고 운영 중 변경은 API로 제한 |
+| repository | 기본은 image-bundled, 대형 모델은 별도 immutable revision | 배포 단위와 rollback 대상 명확화 |
 | cache | `--cache-config=local,size=...`부터 검증 | 기본 구현으로 효과 확인 후 확장 |
 | rate limiter | GPU memory가 빡빡한 모델부터 적용 | OOM과 cross-model 간섭 완화 |
 | logging | `--log-verbose=0` | 정상 traffic에서 로그 비용 최소화 |
@@ -39,6 +39,7 @@
 | probes | live/ready 분리 | 시작 지연과 실제 장애를 분리 |
 | replicas | 최소 2개 이상 | rolling update와 node 장애 대응 |
 | PDB | prod에서 활성화 | voluntary disruption 중 가용성 보호 |
+| image tag | digest 또는 명시 버전 | 재배포 시 다른 이미지가 내려오는 사고 방지 |
 
 ## 배포 흐름
 
@@ -50,13 +51,23 @@ sequenceDiagram
     participant Prod as Production Triton
     Dev->>CI: PR with config/model changes
     CI->>CI: validate.sh, pytest config, lint
-    CI->>CI: build model_repository
-    CI->>Stg: deploy with explicit mode
+    CI->>CI: build model_repository + serving image
+    CI->>Stg: deploy same image SHA with explicit mode
     Stg->>Stg: smoke, integration, perf baseline
     Dev->>Prod: approve release
     Prod->>Prod: rolling deploy / explicit load
     Prod->>Prod: monitor alerts and stats
 ```
+
+Production workflow의 `image_tag`에는 `main`에 포함된 40자리 commit SHA만 넣습니다. workflow는
+그 SHA의 image뿐 아니라 같은 SHA의 Kustomize manifest와 smoke test를 checkout합니다. 승인
+화면에는 image SHA, model manifest revision, config 변경을 하나의 release 단위로 표시하고,
+branch 밖 commit이나 mutable tag는 production 입력으로 허용하지 않습니다.
+
+기본 pipeline은 model repository를 serving image에 포함하므로 image SHA 하나가 runtime과 모델
+세트를 함께 식별합니다. 대형 모델을 object storage/PVC로 분리하면 model revision과 checksum을
+release metadata에 추가하고, staging에서 검증한 바로 그 revision만 production이 읽게 해야
+합니다. `latest` 경로나 운영 중 덮어쓰는 공유 디렉토리는 rollback 단위로 사용하지 않습니다.
 
 ## Release checklist
 
@@ -68,8 +79,19 @@ sequenceDiagram
 - `response_cache`를 켠 모델은 deterministic output인지 확인
 - `instance_group` count와 GPU memory 사용량 확인
 - `scripts/build.sh --env staging --clean` 결과물 확인
-- staging에서 `/v2/models`, `/ready`, `/stats`, `/metrics` 확인
+- staging에서 Repository Index API, `/ready`, `/stats`, `/metrics` 확인
 - perf baseline 대비 latency/throughput 악화 여부 확인
+
+성능 기준선은 동일한 GPU 종류, Triton image, 모델 artifact, 입력 데이터, concurrency에서
+측정해야 합니다. `tests/perf/baseline.json`의 예시 숫자를 그대로 SLO로 사용하지 말고,
+전용 runner에서 여러 차례 측정한 안정 구간의 하한(throughput)과 상한(p95 latency)으로
+교체합니다. `tests/perf/compare_baseline.py`는 `perf_analyzer` CSV를 읽어 이 기준을 실제로
+위반하면 실패 코드를 반환합니다.
+
+기본 Triton Prometheus 지연 metric은 histogram이 아니라 누적 counter입니다. 따라서
+Grafana의 운영 대시보드는 `rate(duration_us) / rate(success_count)`로 평균 지연을 표시하고,
+p95/p99는 `perf_analyzer` 또는 trace backend에서 확인합니다. 요청량이 적어도 error ratio가
+왜곡되지 않도록 alert 분모를 임의의 `1`로 올리지 않습니다.
 
 배포 후:
 
@@ -107,7 +129,18 @@ Rollback 기준:
 - Docker dev: `deploy/docker/docker-compose.yml`
 - Docker prod: `deploy/docker/docker-compose.prod.yml`
 - Helm: `deploy/helm/triton/values*.yaml`
-- Kustomize: `deploy/k8s/base`, `deploy/k8s/overlays/*`
+- Kustomize base: `deploy/k8s/base/deployment.yaml`
+- Kustomize overlay: `deploy/k8s/overlays/*/triton_args_patch.yaml`
+
+Docker Compose production 예시는 단일 호스트 검증용이며 기본적으로 모든 포트를
+`127.0.0.1`에만 바인딩합니다. 외부 공개는 인증·TLS·rate limit을 적용한 reverse proxy를
+통해 수행하고, `.env.prod`의 `GRAFANA_ADMIN_PASSWORD`를 채우기 전에는 기동하지 않습니다.
+`.env.prod`와 `.env.staging`은 secret이 들어갈 수 있으므로 Git에 추적하지 않습니다.
+
+Kubernetes에서도 Triton의 8000/8001 port를 그대로 인터넷에 노출하지 않습니다. Ingress/API
+gateway에서 사용자 인증을 적용하고, repository load/unload API는 배포 identity만 접근할 수
+있게 경로 또는 별도 내부 gateway로 분리합니다. 제공하는 prod Kustomize 예시는 TLS와 basic
+auth를 최소선으로 두며, 조직의 OIDC 또는 mTLS 정책으로 교체하는 것을 권장합니다.
 
 ## 참고 문서
 

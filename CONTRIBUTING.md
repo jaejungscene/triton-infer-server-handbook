@@ -20,6 +20,28 @@
 - config.pbtxt 변경 시 `scripts/validate.sh` 로컬 실행 권장
 - 성능에 영향을 줄 수 있는 변경은 perf test 결과 첨부
 
+## 로컬 검증
+
+PR CI는 Python/config뿐 아니라 모든 Kustomize overlay, Helm values, Docker Compose,
+Prometheus rule, shell 문법을 검사합니다. 제출 전 최소 검증은 다음과 같습니다.
+
+```bash
+./scripts/validate.sh
+pytest tests/config/ tests/scripts/ tests/client/
+ruff check models/ client/ tests/ --select E,W,F --ignore E501
+helm lint deploy/helm/triton -f deploy/helm/triton/values.prod.yaml
+kustomize build deploy/k8s/overlays/prod >/dev/null
+promtool check config monitoring/prometheus/scrape_config.yml
+promtool check rules monitoring/prometheus/triton_rules.yml
+GRAFANA_ADMIN_PASSWORD=local docker compose \
+  -f deploy/docker/docker-compose.prod.yml config --quiet
+```
+
+GitHub Actions의 외부 `uses:`는 release tag가 아니라 40자리 commit SHA로 고정합니다. 사람이
+버전을 알아볼 수 있도록 같은 줄에 `# v4`처럼 tag를 주석으로 남기고, 버전 갱신 PR에서는
+upstream release note와 새 SHA를 함께 검토합니다. repository 내부 composite action은
+`./.github/actions/...` 상대 경로를 사용합니다.
+
 ## 커밋 메시지
 
 ```

@@ -27,16 +27,15 @@ class TritonPythonModel:
             response_sender = request.get_response_sender()
 
             try:
-                input_text = (
-                    pb_utils.get_input_tensor_by_name(request, "INPUT_TEXT")
-                    .as_numpy()[0]
-                    .decode("utf-8")
+                input_text_tensor = pb_utils.get_input_tensor_by_name(
+                    request, "INPUT_TEXT"
                 )
+                input_text = self._as_text(input_text_tensor.as_numpy().reshape(-1)[0])
 
                 max_tokens_tensor = pb_utils.get_input_tensor_by_name(
                     request, "MAX_TOKENS"
                 )
-                max_tokens = int(max_tokens_tensor.as_numpy()[0])
+                max_tokens = int(max_tokens_tensor.as_numpy().reshape(-1)[0])
 
                 # ---------------------------------------------------------
                 # 토큰 스트리밍 루프
@@ -90,6 +89,12 @@ class TritonPythonModel:
         # Placeholder: 실제 LLM 엔진으로 교체
         tokens = [f"token_{i}" for i in range(min(max_tokens, 10))]
         return tokens
+
+    @staticmethod
+    def _as_text(value):
+        if isinstance(value, bytes):
+            return value.decode("utf-8")
+        return str(value)
 
     def finalize(self):
         # LLM 엔진 정리

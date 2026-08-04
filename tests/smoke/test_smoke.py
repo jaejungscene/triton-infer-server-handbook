@@ -7,6 +7,18 @@ test_smoke.py — 배포 직후 빠른 정상 확인
 import requests
 
 
+def _ready_models(triton_url):
+    response = requests.post(
+        f"{triton_url.rstrip('/')}/v2/repository/index",
+        json={"ready": True},
+        timeout=10,
+    )
+    response.raise_for_status()
+    models = response.json()
+    assert isinstance(models, list), "Repository Index response must be a JSON array"
+    return [model for model in models if model.get("name")]
+
+
 class TestServerHealth:
     """Triton 서버 상태 확인"""
 
@@ -33,15 +45,12 @@ class TestModelStatus:
 
     def test_models_loaded(self, triton_url):
         """최소 1개 이상의 모델이 로드됨"""
-        response = requests.get(f"{triton_url}/v2/models", timeout=10)
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data.get("models", [])) > 0, "No models loaded"
+        models = _ready_models(triton_url)
+        assert models, "No ready models returned by Repository Index API"
 
     def test_model_ready(self, triton_url):
         """로드된 모델이 READY 상태"""
-        response = requests.get(f"{triton_url}/v2/models", timeout=10)
-        models = response.json().get("models", [])
+        models = _ready_models(triton_url)
         for model in models:
             name = model["name"]
             ready_response = requests.get(
