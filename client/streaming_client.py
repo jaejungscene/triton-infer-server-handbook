@@ -9,7 +9,7 @@ from queue import Empty, Queue
 
 import numpy as np
 
-from .base import TritonConfig
+from .base import TritonConfig, grpc_tls_kwargs
 
 
 class TritonStreamingClient:
@@ -17,25 +17,14 @@ class TritonStreamingClient:
 
     def __init__(self, config: TritonConfig | None = None):
         self.config = config or TritonConfig()
-        if self.config.timeout <= 0:
-            raise ValueError("timeout must be greater than zero")
-
         import tritonclient.grpc as grpcclient
-
-        ssl_options = None
-        if self.config.ssl:
-            root_cert = None
-            if self.config.ssl_root_cert:
-                with open(self.config.ssl_root_cert, "rb") as cert_file:
-                    root_cert = cert_file.read()
-            ssl_options = grpcclient.SslOptions(root_certificates=root_cert)
 
         self._grpcclient = grpcclient
         self._client = grpcclient.InferenceServerClient(
             url=self.config.grpc_url,
             verbose=self.config.verbose,
             ssl=self.config.ssl,
-            ssl_options=ssl_options,
+            **grpc_tls_kwargs(self.config),
         )
         self._stream_lock = threading.Lock()
         self._closed = False
@@ -81,7 +70,10 @@ class TritonStreamingClient:
                 events.put(("final", None))
 
         with self._stream_lock:
-            self._client.start_stream(callback=response_callback)
+            self._client.start_stream(
+                callback=response_callback,
+                headers=self.config.headers,
+            )
             try:
                 self._client.async_stream_infer(
                     model_name=model_name,

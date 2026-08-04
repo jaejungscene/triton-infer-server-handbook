@@ -49,12 +49,14 @@ class _FakeResult:
 class _FakeInferenceServerClient:
     emit_responses = True
     last_request = None
+    last_headers = None
 
     def __init__(self, **kwargs):
         self.callback = None
 
-    def start_stream(self, callback):
+    def start_stream(self, callback, headers=None):
         self.callback = callback
+        type(self).last_headers = headers
 
     def async_stream_infer(self, **kwargs):
         type(self).last_request = kwargs
@@ -76,7 +78,6 @@ def fake_grpc_module(monkeypatch):
     grpc_module.InferInput = _FakeInferInput
     grpc_module.InferRequestedOutput = _FakeRequestedOutput
     grpc_module.InferenceServerClient = _FakeInferenceServerClient
-    grpc_module.SslOptions = SimpleNamespace
 
     tritonclient_module = types.ModuleType("tritonclient")
     tritonclient_module.grpc = grpc_module
@@ -84,6 +85,7 @@ def fake_grpc_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "tritonclient.grpc", grpc_module)
     _FakeInferenceServerClient.emit_responses = True
     _FakeInferenceServerClient.last_request = None
+    _FakeInferenceServerClient.last_headers = None
 
 
 def test_template_stream_decodes_nested_byte_output():
@@ -114,6 +116,7 @@ def test_vllm_stream_uses_serving_model_tensor_contract():
     parameters = json.loads(request["inputs"][2].data[0])
     assert parameters == {"temperature": 0.2, "max_tokens": 16}
     assert request["outputs"][0].name == "text_output"
+    assert _FakeInferenceServerClient.last_headers == {}
 
 
 def test_stream_fails_after_idle_timeout():

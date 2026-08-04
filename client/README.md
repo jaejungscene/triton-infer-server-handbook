@@ -48,9 +48,25 @@ with TritonStreamingClient(TritonConfig(timeout=30)) as client:
         print(token, end="")
 ```
 
-`TritonConfig.timeout`은 스트림에서 다음 응답을 기다리는 최대 idle 시간입니다. timeout이나
-오류가 발생하면 해당 stream request를 취소합니다. 한 client instance에서는 stream을
-직렬화하므로 높은 동시성이 필요하면 worker별 client를 생성합니다.
+`TritonConfig.timeout`은 HTTP connect/network timeout, gRPC unary request deadline, streaming
+idle timeout에 공통 적용됩니다. timeout이나 오류가 발생하면 해당 요청을 실패로 처리하며,
+stream은 취소합니다. 한 streaming client instance에서는 stream을 직렬화하므로 높은
+동시성이 필요하면 worker별 client를 생성합니다.
+
+```python
+config = TritonConfig(
+    ssl=True,
+    ssl_root_cert="/certs/ca.crt",
+    ssl_cert="/certs/client.crt",  # mTLS certificate chain
+    ssl_key="/certs/client.key",
+    headers={"authorization": "Bearer ..."},
+    timeout=10,
+)
+```
+
+`ssl_cert`와 `ssl_key`는 반드시 함께 설정합니다. HTTP와 gRPC 모두 CA 검증을 기본으로 하며,
+인증 header는 health/model/inference 요청과 stream handshake에 전달됩니다. production에서는
+token을 코드나 저장소에 넣지 말고 secret manager에서 주입합니다.
 
 Shared-memory client는 요청마다 충돌하지 않는 region 이름을 만들고 inference 종료 시 즉시
 해제합니다. 반환 NumPy 배열은 region 해제 전에 복사되므로 client 수명과 독립적입니다.

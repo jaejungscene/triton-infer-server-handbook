@@ -46,13 +46,13 @@ class _FakeHTTPClient:
         self.source_output = np.array([[1.0]], dtype=np.float32)
         type(self).last_instance = self
 
-    def register_system_shared_memory(self, name, key, byte_size):
+    def register_system_shared_memory(self, name, key, byte_size, headers=None):
         self.registered.append(name)
 
-    def unregister_system_shared_memory(self, name):
+    def unregister_system_shared_memory(self, name, headers=None):
         self.unregistered.append(name)
 
-    def infer(self, model_name, inputs, outputs, model_version):
+    def infer(self, model_name, inputs, outputs, model_version, headers=None):
         if type(self).fail_infer:
             raise RuntimeError("inference failed")
         return _FakeResult({output.name: self.source_output for output in outputs})

@@ -16,7 +16,7 @@ HTTP Client — REST / KServe v2 Protocol
 
 import numpy as np
 
-from .base import BaseTritonClient, TritonConfig
+from .base import BaseTritonClient, TritonConfig, http_ssl_context
 
 
 class TritonHTTPClient(BaseTritonClient):
@@ -26,30 +26,30 @@ class TritonHTTPClient(BaseTritonClient):
         super().__init__(config or TritonConfig())
         import tritonclient.http as httpclient
 
-        ssl_context = None
-        if self.config.ssl:
-            import ssl
-
-            ssl_context = ssl.create_default_context()
-            if self.config.ssl_root_cert:
-                ssl_context.load_verify_locations(self.config.ssl_root_cert)
+        ssl_context = http_ssl_context(self.config)
 
         self._client = httpclient.InferenceServerClient(
             url=self.config.url,
             verbose=self.config.verbose,
+            connection_timeout=self.config.timeout,
+            network_timeout=self.config.timeout,
             ssl=self.config.ssl,
-            ssl_context_factory=lambda: ssl_context if ssl_context else None,
+            ssl_context_factory=(lambda: ssl_context) if ssl_context else None,
         )
         self._httpclient = httpclient
 
     def is_server_ready(self) -> bool:
-        return self._client.is_server_ready()
+        return self._client.is_server_ready(headers=self.config.headers)
 
     def is_model_ready(self, model_name: str, model_version: str = "") -> bool:
-        return self._client.is_model_ready(model_name, model_version)
+        return self._client.is_model_ready(
+            model_name, model_version, headers=self.config.headers
+        )
 
     def get_model_config(self, model_name: str, model_version: str = ""):
-        return self._client.get_model_config(model_name, model_version)
+        return self._client.get_model_config(
+            model_name, model_version, headers=self.config.headers
+        )
 
     def infer(self, model_name: str, inputs: list, outputs: list, **kwargs):
         return self._client.infer(

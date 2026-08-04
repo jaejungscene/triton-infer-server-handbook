@@ -7,6 +7,7 @@ Base Client — 공통 설정 및 유틸리티
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import ssl
 
 
 @dataclass
@@ -21,7 +22,41 @@ class TritonConfig:
     ssl_cert: str = ""
     ssl_key: str = ""
     ssl_root_cert: str = ""
-    headers: dict = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.timeout <= 0:
+            raise ValueError("timeout must be greater than zero")
+        if bool(self.ssl_cert) != bool(self.ssl_key):
+            raise ValueError("ssl_cert and ssl_key must be configured together")
+
+
+def _read_optional_bytes(path: str) -> bytes | None:
+    if not path:
+        return None
+    with open(path, "rb") as material_file:
+        return material_file.read()
+
+
+def grpc_tls_kwargs(config: TritonConfig) -> dict:
+    """Build Python tritonclient gRPC TLS constructor arguments."""
+    if not config.ssl:
+        return {}
+    return {
+        "root_certificates": _read_optional_bytes(config.ssl_root_cert),
+        "private_key": _read_optional_bytes(config.ssl_key),
+        "certificate_chain": _read_optional_bytes(config.ssl_cert),
+    }
+
+
+def http_ssl_context(config: TritonConfig) -> ssl.SSLContext | None:
+    """Build a verified HTTP TLS context, optionally with an mTLS identity."""
+    if not config.ssl:
+        return None
+    context = ssl.create_default_context(cafile=config.ssl_root_cert or None)
+    if config.ssl_cert:
+        context.load_cert_chain(config.ssl_cert, config.ssl_key)
+    return context
 
 
 class BaseTritonClient(ABC):
@@ -48,3 +83,10 @@ class BaseTritonClient(ABC):
         if self._client and hasattr(self._client, "close"):
             self._client.close()
         self._client = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+        return False

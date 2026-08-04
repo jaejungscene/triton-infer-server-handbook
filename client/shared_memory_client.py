@@ -34,7 +34,7 @@ import uuid
 
 import numpy as np
 
-from .base import TritonConfig
+from .base import TritonConfig, http_ssl_context
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,9 +48,14 @@ class TritonSHMClient:
 
         import tritonclient.http as httpclient
 
+        ssl_context = http_ssl_context(self.config)
         self._client = httpclient.InferenceServerClient(
             url=self.config.url,
             verbose=self.config.verbose,
+            connection_timeout=self.config.timeout,
+            network_timeout=self.config.timeout,
+            ssl=self.config.ssl,
+            ssl_context_factory=(lambda: ssl_context) if ssl_context else None,
         )
         self._httpclient = httpclient
 
@@ -120,10 +125,14 @@ class TritonSHMClient:
                         self._shm.get_raw_handle(shm_handle),
                         0,
                         byte_size,
+                        headers=self.config.headers,
                     )
                 else:
                     self._client.register_system_shared_memory(
-                        region_name, f"/{region_name}", byte_size
+                        region_name,
+                        f"/{region_name}",
+                        byte_size,
+                        headers=self.config.headers,
                     )
 
                 inp = self._httpclient.InferInput(
@@ -160,10 +169,14 @@ class TritonSHMClient:
                         self._shm.get_raw_handle(shm_handle),
                         0,
                         byte_size,
+                        headers=self.config.headers,
                     )
                 else:
                     self._client.register_system_shared_memory(
-                        region_name, f"/{region_name}", byte_size
+                        region_name,
+                        f"/{region_name}",
+                        byte_size,
+                        headers=self.config.headers,
                     )
 
                 out = self._httpclient.InferRequestedOutput(name)
@@ -175,6 +188,7 @@ class TritonSHMClient:
                 inputs=inputs,
                 outputs=outputs,
                 model_version=model_version,
+                headers=self.config.headers,
             )
 
             copied_outputs = {}
@@ -193,9 +207,13 @@ class TritonSHMClient:
                 continue
             try:
                 if self.use_cuda:
-                    self._client.unregister_cuda_shared_memory(region_name)
+                    self._client.unregister_cuda_shared_memory(
+                        region_name, headers=self.config.headers
+                    )
                 else:
-                    self._client.unregister_system_shared_memory(region_name)
+                    self._client.unregister_system_shared_memory(
+                        region_name, headers=self.config.headers
+                    )
             except Exception as exc:
                 _LOGGER.debug(
                     "Failed to unregister shared memory region %s: %s",
