@@ -253,10 +253,31 @@ class TestDeploymentRuntimeArgs:
             assert policy["spec"]["podSelector"]["matchLabels"]["app"] == \
                 "triton-server"
 
-    def test_http_and_grpc_use_separate_ingresses(self, project_root):
+    def test_ingress_is_opt_in_and_production_is_authenticated(self, project_root):
         base_dir = os.path.join(project_root, "deploy", "k8s", "base")
-        http_ingress = self._load_yaml(os.path.join(base_dir, "ingress-http.yaml"))
-        grpc_ingress = self._load_yaml(os.path.join(base_dir, "ingress-grpc.yaml"))
+        base = self._load_yaml(os.path.join(base_dir, "kustomization.yaml"))
+        assert not any("ingress" in resource for resource in base.get("resources", []))
+
+        prod_dir = os.path.join(project_root, "deploy", "k8s", "overlays", "prod")
+        prod = self._load_yaml(os.path.join(prod_dir, "kustomization.yaml"))
+        assert "../../ingress" in prod.get("resources", [])
+
+        for filename in ("ingress_http_patch.yaml", "ingress_grpc_patch.yaml"):
+            patch = self._load_yaml(os.path.join(prod_dir, filename))
+            annotations = patch["metadata"]["annotations"]
+            assert annotations["nginx.ingress.kubernetes.io/ssl-redirect"] == "true"
+            assert annotations["nginx.ingress.kubernetes.io/auth-type"] == "basic"
+            assert annotations["nginx.ingress.kubernetes.io/auth-secret"] == \
+                "triton-ingress-basic-auth"
+
+    def test_http_and_grpc_use_separate_ingresses(self, project_root):
+        ingress_dir = os.path.join(project_root, "deploy", "k8s", "ingress")
+        http_ingress = self._load_yaml(
+            os.path.join(ingress_dir, "ingress-http.yaml")
+        )
+        grpc_ingress = self._load_yaml(
+            os.path.join(ingress_dir, "ingress-grpc.yaml")
+        )
 
         assert "nginx.ingress.kubernetes.io/backend-protocol" not in \
             http_ingress["metadata"].get("annotations", {})

@@ -20,6 +20,12 @@ flowchart LR
     metrics --> grafana["Grafana / Alertmanager"]
 ```
 
+Ingress는 단순한 protocol 변환기가 아니라 인증 경계입니다. Triton HTTP/gRPC endpoint에는
+inference뿐 아니라 repository load/unload와 server metadata API도 있으므로, 인터넷에서
+Triton Service로 직접 연결하면 안 됩니다. 외부 요청은 API gateway/Ingress에서 인증·인가·
+rate limit을 거치고, 모델 제어 API는 CI/CD 또는 운영망 identity에만 허용합니다. metrics
+port는 외부 Ingress에 연결하지 않고 monitoring namespace에서만 수집합니다.
+
 핵심 단위는 세 가지입니다.
 
 | 단위 | 위치 | 역할 |

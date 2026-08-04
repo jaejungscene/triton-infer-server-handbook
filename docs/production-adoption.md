@@ -127,6 +127,11 @@ Docker Compose production 예시는 단일 호스트 검증용이며 기본적�
 통해 수행하고, `.env.prod`의 `GRAFANA_ADMIN_PASSWORD`를 채우기 전에는 기동하지 않습니다.
 `.env.prod`와 `.env.staging`은 secret이 들어갈 수 있으므로 Git에 추적하지 않습니다.
 
+Kubernetes에서도 Triton의 8000/8001 port를 그대로 인터넷에 노출하지 않습니다. Ingress/API
+gateway에서 사용자 인증을 적용하고, repository load/unload API는 배포 identity만 접근할 수
+있게 경로 또는 별도 내부 gateway로 분리합니다. 제공하는 prod Kustomize 예시는 TLS와 basic
+auth를 최소선으로 두며, 조직의 OIDC 또는 mTLS 정책으로 교체하는 것을 권장합니다.
+
 ## 참고 문서
 
 - Model Management: https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/model_management.html

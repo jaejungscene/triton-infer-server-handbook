@@ -5,6 +5,7 @@ namespace: production
 
 resources:
   - ../../base
+  - ../../ingress
   - namespace.yaml
   - network_policy.yaml
 
