@@ -340,7 +340,7 @@ kubectl apply -k deploy/k8s/overlays/staging
    ```bash
    ./scripts/build.sh --env dev
    docker compose -f deploy/docker/docker-compose.yml up -d
-   pytest tests/smoke/
+   pytest tests/smoke/ --run-live
    ```
 
 ---

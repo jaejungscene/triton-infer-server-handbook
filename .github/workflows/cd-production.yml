@@ -131,7 +131,7 @@ jobs:
 
           for i in $(seq 1 30); do
             if curl -sf "http://localhost:8000/v2/health/ready" > /dev/null 2>&1; then
-              pytest tests/smoke/ --triton-url "http://localhost:8000" -v
+              pytest tests/smoke/ --run-live --triton-url "http://localhost:8000" -v
               exit 0
             fi
             echo "Waiting for port-forwarded Triton... (${i}/30)"

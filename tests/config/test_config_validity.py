@@ -426,6 +426,17 @@ class TestReleaseWorkflow:
         assert "name: Unit Tests" in workflow
         assert "pytest tests/client/ tests/scripts/ tests/perf/" in workflow
 
+    def test_deployment_workflows_explicitly_enable_live_tests(self, project_root):
+        workflow_expectations = {
+            "ci-build-test.yml": "pytest tests/smoke/ --run-live",
+            "cd-staging.yml": "pytest tests/integration/ --run-live",
+            "cd-production.yml": "pytest tests/smoke/ --run-live",
+        }
+        for filename, command in workflow_expectations.items():
+            path = os.path.join(project_root, ".github", "workflows", filename)
+            with open(path) as workflow_file:
+                assert command in workflow_file.read()
+
     def test_main_build_tracks_tests_and_publishes_only_sha_tag(self, project_root):
         workflow_path = os.path.join(
             project_root, ".github", "workflows", "ci-build-test.yml"

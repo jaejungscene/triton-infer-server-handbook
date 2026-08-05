@@ -102,7 +102,7 @@ jobs:
       - name: Run smoke tests
         run: |
           python -m pip install -r requirements-integration.txt
-          pytest tests/smoke/ --triton-url http://localhost:8000 -v
+          pytest tests/smoke/ --run-live --triton-url http://localhost:8000 -v
 
       - name: Cleanup test container
         if: always()

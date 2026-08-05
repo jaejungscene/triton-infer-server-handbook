@@ -17,7 +17,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements-dev.txt
 
-# 전체 실행
+# 기본 전체 실행 (live smoke/integration은 skip)
 pytest tests/
 
 # Config 검증만 (CI에서 주로 사용)
@@ -25,11 +25,13 @@ pytest tests/config/
 
 # Smoke test (Triton 서버 실행 중이어야 함)
 pytest tests/smoke/ \
+  --run-live \
   --triton-url http://localhost:8000 \
   --triton-metrics-url http://localhost:8002
 
 # Integration test
 pytest tests/integration/ \
+  --run-live \
   --triton-url http://localhost:8000 \
   --triton-metrics-url http://localhost:8002
 
@@ -44,6 +46,8 @@ docker run --rm \
 
 `tests/config/`는 Triton 서버가 없어도 실행됩니다. `tests/smoke/`와
 `tests/integration/`은 이미 기동 중인 Triton 서버가 필요합니다.
+두 live suite는 endpoint를 실수로 호출하지 않도록 기본 실행에서 skip되며 반드시
+`--run-live`를 지정해야 합니다.
 Smoke test는 Repository Index API에서 ready 모델이 최소 하나 확인되어야 통과합니다.
 서버 health endpoint만 200이고 모델이 하나도 로드되지 않은 상태는 배포 성공으로 보지 않습니다.
 
