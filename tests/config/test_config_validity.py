@@ -273,6 +273,38 @@ class TestDeploymentRuntimeArgs:
             assert policy["spec"]["podSelector"]["matchLabels"]["app"] == \
                 "triton-server"
 
+        prod_policy = self._load_yaml(
+            os.path.join(overlays_dir, "prod", "network_policy.yaml")
+        )
+        assert not any(
+            source == {"podSelector": {}}
+            for rule in prod_policy["spec"]["ingress"]
+            for source in rule.get("from", [])
+        ), "production must not trust every pod in its namespace"
+
+    def test_production_has_hpa_and_pdb(self, project_root):
+        prod_dir = os.path.join(project_root, "deploy", "k8s", "overlays", "prod")
+        kustomization = self._load_yaml(os.path.join(prod_dir, "kustomization.yaml"))
+        resources = set(kustomization["resources"])
+
+        assert {"hpa.yaml", "pdb.yaml"}.issubset(resources)
+        hpa = self._load_yaml(os.path.join(prod_dir, "hpa.yaml"))
+        assert hpa["spec"]["minReplicas"] >= 3
+        assert hpa["spec"]["behavior"]["scaleDown"][
+            "stabilizationWindowSeconds"
+        ] >= 300
+        assert hpa["spec"]["metrics"][0]["resource"]["name"] == "cpu"
+
+        pdb = self._load_yaml(os.path.join(prod_dir, "pdb.yaml"))
+        assert pdb["spec"]["minAvailable"] >= 2
+
+        helm_prod = self._load_yaml(
+            os.path.join(
+                project_root, "deploy", "helm", "triton", "values.prod.yaml"
+            )
+        )
+        assert helm_prod["networkPolicy"]["allowSameNamespace"] is False
+
     def test_ingress_is_opt_in_and_production_is_authenticated(self, project_root):
         base_dir = os.path.join(project_root, "deploy", "k8s", "base")
         base = self._load_yaml(os.path.join(base_dir, "kustomization.yaml"))

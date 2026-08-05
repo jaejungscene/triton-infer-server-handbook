@@ -12,6 +12,8 @@ spec:
     name: {{ include "triton.fullname" . }}
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  behavior:
+    {{- toYaml .Values.autoscaling.behavior | nindent 4 }}
   metrics:
     - type: Resource
       resource:
@@ -19,15 +21,4 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
-    # GPU 메트릭 기반 스케일링 (DCGM Exporter 연동 시 활성화)
-    # - type: External
-    #   external:
-    #     metric:
-    #       name: DCGM_FI_DEV_GPU_UTIL
-    #       selector:
-    #         matchLabels:
-    #           app.kubernetes.io/name: triton
-    #     target:
-    #       type: AverageValue
-    #       averageValue: "80"
 {{- end }}

@@ -60,6 +60,10 @@ HPA가 계산한 replica 수를 다시 기본값으로 덮지 않게 하기 위�
 통과하기 전에는 liveness probe가 동작하지 않으며, 종료 시에는 preStop과 grace period로
 endpoint 전파 및 진행 중 요청 정리 시간을 확보합니다.
 
+기본 HPA metric은 별도 adapter 없이 동작하는 CPU utilization이고 scale-down은 5분간
+안정화합니다. GPU 사용률이나 Triton queue metric을 쓰려면 Prometheus Adapter/KEDA의
+metric 계약을 먼저 구성하고 `templates/hpa.yaml`의 metric을 조직 환경에 맞게 교체합니다.
+
 기본 chart는 `scripts/build.sh` 결과를 `/models`에 포함한 release image를 전제로 하며 PVC를
 마운트하지 않습니다. private registry나 외부 모델 PVC는 values로 명시합니다.
 
@@ -81,10 +85,10 @@ staging/prod는 hostname 기준 topology spread를 기본 활성화합니다. GP
 클러스터에서는 `whenUnsatisfiable: ScheduleAnyway`이므로 배포를 막지는 않으며, 강제 분산이
 필요하면 `DoNotSchedule`로 바꾸고 GPU 용량을 먼저 확보합니다.
 
-staging/prod는 NetworkPolicy도 활성화합니다. 기본값은 같은 namespace의 Pod, 이름이
-`ingress-nginx`인 namespace의 HTTP/gRPC, 이름이 `monitoring`인 namespace의 metrics 접근만
-허용합니다. 클러스터 구성이 다르면 `networkPolicy.*NamespaceSelector`를 배포 전에
-조정해야 하며, 정책을 적용한 뒤 inference와 scrape를 각각 확인합니다.
+staging/prod는 NetworkPolicy도 활성화합니다. staging은 같은 namespace Pod를 허용하지만
+prod는 `allowSameNamespace: false`로 두고, 이름이 `ingress-nginx`인 namespace의 HTTP/gRPC와
+이름이 `monitoring`인 namespace의 metrics 접근만 허용합니다. 클러스터 구성이 다르면
+`networkPolicy.*NamespaceSelector`를 배포 전에 조정하고 inference와 scrape를 각각 확인합니다.
 
 ## 주요 배포 명령어
 

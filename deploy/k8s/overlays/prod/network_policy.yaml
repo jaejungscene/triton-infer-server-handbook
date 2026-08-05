@@ -10,12 +10,6 @@ spec:
     - Ingress
   ingress:
     - from:
-        - podSelector: {}
-      ports:
-        - {protocol: TCP, port: 8000}
-        - {protocol: TCP, port: 8001}
-        - {protocol: TCP, port: 8002}
-    - from:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx

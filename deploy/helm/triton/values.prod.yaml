@@ -42,6 +42,7 @@ pdb:
 
 networkPolicy:
   enabled: true
+  allowSameNamespace: false
 
 topologySpread:
   enabled: true

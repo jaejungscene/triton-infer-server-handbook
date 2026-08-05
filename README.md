@@ -153,7 +153,7 @@ triton-inference-server/
 │   │           ├── _helpers.tpl         # 이름·레이블 생성 헬퍼
 │   │           ├── deployment.yaml      # Triton Pod 스펙 (GPU tolerations)
 │   │           ├── service.yaml         # ClusterIP (HTTP 8000, gRPC 8001, metrics 8002)
-│   │           ├── hpa.yaml             # HorizontalPodAutoscaler (CPU / GPU 메트릭)
+│   │           ├── hpa.yaml             # HorizontalPodAutoscaler (CPU 기본, custom metric 확장 가능)
 │   │           ├── pvc.yaml             # PersistentVolumeClaim (50Gi, ReadWriteMany)
 │   │           └── pdb.yaml             # PodDisruptionBudget (minAvailable)
 │   │
