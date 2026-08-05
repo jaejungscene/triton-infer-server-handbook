@@ -65,7 +65,9 @@ kubectl port-forward -n production svc/triton-server 8000:8000 8001:8001 8002:80
 ## 환경별 Triton 인자
 
 Kustomize는 base Deployment의 기본 인자를 환경별 overlay patch로 교체합니다.
-Helm도 동일하게 `values*.yaml`의 `tritonArgs`로 실행 인자를 주입합니다.
+Helm도 동일하게 `values*.yaml`의 `tritonArgs`로 실행 인자를 주입합니다. 두 방식 모두
+프로젝트 이미지의 `ENTRYPOINT ["tritonserver"]`를 전제로 하므로 `args`에는 실행 파일
+이름이 아니라 `--model-repository`부터 시작하는 플래그만 둡니다.
 
 | 환경 | 핵심 인자 | 목적 |
 |------|-----------|------|

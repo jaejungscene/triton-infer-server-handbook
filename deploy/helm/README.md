@@ -41,9 +41,10 @@ helm upgrade --install triton deploy/helm/triton \
 | `values.staging.yaml` | 2 | explicit | 없음 | 사용 (min 1) | 스테이징 |
 | `values.prod.yaml` | 3 | explicit + 캐시 | 사용 (3~10) | 사용 (min 2) | 프로덕션 |
 
-`tritonArgs`는 Kubernetes `args`에 그대로 렌더링됩니다. 따라서 첫 항목은
-`tritonserver`여야 하며, 그 뒤에 `--model-repository=/models` 같은 서버 플래그를
-나열합니다.
+`tritonArgs`는 Kubernetes `args`에 그대로 렌더링되며 이미지의
+`ENTRYPOINT ["tritonserver"]`에 전달됩니다. 따라서 실행 파일 이름을 반복하지 않고
+`--model-repository=/models` 같은 서버 플래그만 나열합니다. 다른 이미지를 쓸 때는 그
+이미지가 같은 entrypoint 계약을 제공하는지 배포 전에 확인합니다.
 
 staging/prod는 `explicit`와 `--load-model=*`를 함께 사용합니다. `explicit`만 지정하면
 시작 시 아무 모델도 로드되지 않으므로, 저장소 전체가 배포 승인 단위인 환경에서만 이

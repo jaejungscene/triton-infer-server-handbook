@@ -34,7 +34,6 @@ spec:
         - name: triton
           image: triton-server:local
           args:
-            - "tritonserver"
             - "--model-repository=/models"
             - "--strict-model-config=true"
             - "--allow-metrics=true"

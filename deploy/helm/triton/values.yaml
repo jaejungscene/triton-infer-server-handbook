@@ -46,7 +46,6 @@ lifecycle:
 
 # ----- Triton 서버 인수 -----
 tritonArgs:
-  - tritonserver
   - --model-repository=/models
   - --strict-model-config=true
   - --allow-metrics=true

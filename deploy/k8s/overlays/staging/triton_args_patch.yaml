@@ -8,7 +8,6 @@ spec:
       containers:
         - name: triton
           args:
-            - tritonserver
             - --model-repository=/models
             - --strict-model-config=true
             - --allow-metrics=true

@@ -179,7 +179,7 @@ class TestDeploymentRuntimeArgs:
         with open(path) as f:
             return yaml.safe_load(f)
 
-    def test_helm_values_start_with_tritonserver(self, project_root):
+    def test_helm_values_only_contain_entrypoint_arguments(self, project_root):
         values_dir = os.path.join(project_root, "deploy", "helm", "triton")
         for filename in (
             "values.yaml",
@@ -191,8 +191,10 @@ class TestDeploymentRuntimeArgs:
             args = values.get("tritonArgs", [])
 
             assert args, f"{filename} has no tritonArgs"
-            assert args[0] == "tritonserver", \
-                f"{filename} must keep tritonserver as the first Kubernetes arg"
+            assert args[0].startswith("--"), \
+                f"{filename} must contain flags for the image entrypoint"
+            assert "tritonserver" not in args, \
+                f"{filename} must not repeat the image entrypoint"
             assert "--model-repository=/models" in args, \
                 f"{filename} must set the model repository"
             assert "--allow-metrics=true" in args, \
@@ -231,8 +233,10 @@ class TestDeploymentRuntimeArgs:
             patch = self._load_yaml(patch_path)
             args = patch["spec"]["template"]["spec"]["containers"][0]["args"]
 
-            assert args[0] == "tritonserver", \
-                f"{overlay} overlay must keep tritonserver as the first arg"
+            assert args[0].startswith("--"), \
+                f"{overlay} overlay must contain flags for the image entrypoint"
+            assert "tritonserver" not in args, \
+                f"{overlay} overlay must not repeat the image entrypoint"
             assert "--model-repository=/models" in args, \
                 f"{overlay} overlay must set the model repository"
             assert expected_args.issubset(set(args)), \
