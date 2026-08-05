@@ -2,10 +2,10 @@
 
 Triton은 [TRITONCACHE API](https://github.com/triton-inference-server/core/blob/main/include/triton/core/tritoncache.h)를 통해 custom cache 구현을 지원합니다.
 
-## 기본 제공 캐시
+## 캐시 구현
 
-- `local` — 인메모리 캐시 (프로세스 내)
-- `redis` — Redis 서버 연동
+- `local` — Triton 기본 인메모리 캐시 (프로세스 내)
+- `redis` — 별도 plugin build와 release image 포함이 필요한 참고 구현
 
 ## Custom Cache 개발 절차
 
@@ -23,6 +23,10 @@ tritonserver \
 ```
 
 ## 참고
+
+`docker-compose.prod.yml`의 `redis-cache` profile은 Redis 서버만 시작합니다. Redis cache를
+사용하려면 plugin을 Triton image의 cache 경로에 포함하고 `--cache-config=redis,...` 인수로
+교체한 image를 staging에서 먼저 검증합니다.
 
 - [local_cache](https://github.com/triton-inference-server/local_cache) — 인메모리 캐시 구현
 - [redis_cache](https://github.com/triton-inference-server/redis_cache) — Redis 캐시 구현

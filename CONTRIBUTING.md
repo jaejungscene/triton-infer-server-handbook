@@ -33,7 +33,7 @@ helm lint deploy/helm/triton -f deploy/helm/triton/values.prod.yaml
 kustomize build deploy/k8s/overlays/prod >/dev/null
 promtool check config monitoring/prometheus/scrape_config.yml
 promtool check rules monitoring/prometheus/triton_rules.yml
-GRAFANA_ADMIN_PASSWORD=local docker compose \
+TRITON_IMAGE=triton-server:validation GRAFANA_ADMIN_PASSWORD=local docker compose \
   -f deploy/docker/docker-compose.prod.yml config --quiet
 ```
 

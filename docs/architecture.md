@@ -18,7 +18,9 @@ flowchart LR
     ci["CI/CD"] --> repo["validated model_repository"]
     repo --> image["immutable serving image"]
     image --> triton
-    metrics --> grafana["Grafana / Alertmanager"]
+    metrics --> prometheus["Prometheus"]
+    prometheus --> grafana["Grafana"]
+    prometheus -.-> alertmanager["External Alertmanager (optional)"]
 ```
 
 Ingress는 단순한 protocol 변환기가 아니라 인증 경계입니다. Triton HTTP/gRPC endpoint에는
@@ -68,8 +70,9 @@ Decoupled streaming 모델은 HTTP나 일반 gRPC infer가 아니라 bi-directio
 2. CI가 모델 바이너리 또는 외부 artifact를 확보합니다.
 3. `scripts/build.sh --env <env> --clean`으로 `model_repository/`를 생성합니다.
 4. CI가 repository를 `/models`에 포함한 image를 commit SHA로 만들고 그 image를 smoke test합니다.
-5. staging에서 같은 SHA를 explicit load하고 integration/perf test를 수행합니다.
-6. production은 승인된 SHA를 배포하고 실패 시 이전 image로 되돌립니다.
+5. staging에서 같은 SHA를 explicit load하고 integration test를 수행합니다.
+6. 별도 GPU workflow에서 같은 revision의 perf baseline을 주간 또는 수동으로 비교합니다.
+7. production은 승인된 SHA를 배포하고 실패 시 이전 image로 되돌립니다.
 
 이 저장소의 기본 production 단위는 server runtime과 model repository를 함께 담은 immutable
 image입니다. 모델이 수십 GB라 registry 전송 비용이 더 큰 환경은 PVC/object storage를 쓸 수

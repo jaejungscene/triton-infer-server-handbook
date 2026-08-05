@@ -24,13 +24,12 @@
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements-dev.txt
-cp .env.example .env.dev
 
 # 2. 모델 빌드 (models/serving/ → model_repository/)
 ./scripts/build.sh --env dev
 
 # 3. 서버 기동
-docker compose -f deploy/docker/docker-compose.yml up -d
+docker compose --env-file .env.dev -f deploy/docker/docker-compose.yml up -d
 
 # 4. Health Check
 ./scripts/health_check.sh
@@ -51,7 +50,7 @@ pytest tests/config/
 ## 프로젝트 구조
 
 ```
-triton-inference-server/
+triton-infer-server-handbook/
 │
 ├── models/                              # 모델 소스 코드 (Git 관리 대상)
 │   ├── _templates/                      # 새 모델 추가 시 복사하여 시작
@@ -64,7 +63,7 @@ triton-inference-server/
 │   │   │   ├── postprocessor/
 │   │   │   └── pipeline/config.pbtxt   # ensemble 스텝 연결 정의
 │   │   ├── bls_model/                   # Python 내 다중 모델 호출·분기
-│   │   │   └── 1/model.py              # pbutils.InferenceServerClient 직접 호출
+│   │   │   └── 1/model.py              # pb_utils.InferenceRequest로 내부 모델 호출
 │   │   └── decoupled_streaming/         # LLM 토큰 스트리밍 (비동기 응답)
 │   │       └── 1/model.py
 │   │
@@ -140,7 +139,7 @@ triton-inference-server/
 │   │   ├── Dockerfile                   # 프로덕션 런타임 이미지
 │   │   ├── Dockerfile.converter          # 모델 변환용 이미지 (CI 전용)
 │   │   ├── docker-compose.yml           # 개발 환경 (GPU 1개, poll 모드)
-│   │   └── docker-compose.prod.yml      # 프로덕션 (Triton + Prometheus + Grafana, Redis profile 선택)
+│   │   └── docker-compose.prod.yml      # 단일 호스트 운영 검증 (release image + monitoring)
 │   │
 │   ├── helm/                            # Helm Chart (업계 표준 K8s 패키징)
 │   │   └── triton/
@@ -154,6 +153,7 @@ triton-inference-server/
 │   │           ├── deployment.yaml      # Triton Pod 스펙 (GPU tolerations)
 │   │           ├── service.yaml         # ClusterIP (HTTP 8000, gRPC 8001, metrics 8002)
 │   │           ├── hpa.yaml             # HorizontalPodAutoscaler (CPU 기본, custom metric 확장 가능)
+│   │           ├── networkpolicy.yaml   # namespace/port ingress 제한
 │   │           ├── pvc.yaml             # PersistentVolumeClaim (50Gi, ReadWriteMany)
 │   │           └── pdb.yaml             # PodDisruptionBudget (minAvailable)
 │   │
@@ -161,8 +161,9 @@ triton-inference-server/
 │       ├── base/                        # 기본 매니페스트
 │       │   ├── deployment.yaml
 │       │   ├── service.yaml
-│       │   ├── pvc.yaml
 │       │   └── kustomization.yaml
+│       ├── components/model-pvc/        # 외부 모델 PVC를 선택할 때만 적용
+│       ├── ingress/                     # HTTP/gRPC Ingress 리소스
 │       └── overlays/
 │           ├── dev/                     # 1 replica, 리소스 최소
 │           ├── staging/                 # 2 replicas, 중간 리소스
@@ -173,11 +174,12 @@ triton-inference-server/
 ├── monitoring/                          # 메트릭·트레이싱·알림
 │   ├── prometheus/
 │   │   ├── scrape_config.yml            # Compose 서비스 triton:8002/metrics 스크랩 설정
-│   │   └── triton_rules.yml             # 알림 규칙 (latency, error rate, GPU 사용률 등)
+│   │   ├── triton_rules.yml             # 알림 규칙 (latency, error rate, GPU 사용률 등)
+│   │   └── triton_rules_test.yml        # promtool alert evaluation 테스트
 │   ├── grafana/
 │   │   └── triton_dashboard.json        # 사전 구성된 Grafana 대시보드
 │   └── otel/
-│       └── otel-collector-config.yaml   # OTel Collector (수신: OTLP → 전달: Jaeger / Zipkin)
+│       └── otel-collector-config.yaml   # 별도 배포용 OTel Collector 설정 예시
 │
 ├── tests/                               # 테스트 피라미드
 │   ├── config/                          # config.pbtxt 검증 (PR마다 실행)
@@ -204,8 +206,8 @@ triton-inference-server/
 │       ├── cd-production.yml            # prod 수동 배포 + 자동 롤백
 │       └── perf-benchmark.yml           # 주간 성능 기준선 비교
 │
-├── .env.example                         # 환경변수 템플릿 (이미지, 포트, 캐시, TLS 등)
-├── .env.dev                             # 개발 환경 (Git 추적 허용)
+├── .env.example                         # production Compose 환경변수 템플릿
+├── .env.dev                             # 개발 Compose 기본값 (Git 추적 허용)
 ├── .gitignore
 ├── README.md
 └── CONTRIBUTING.md
@@ -277,7 +279,7 @@ triton-inference-server/
 | **Prometheus Metrics** | `monitoring/prometheus/scrape_config.yml` | throughput, latency, 큐 대기, GPU 사용률 수집 |
 | **Alert Rules** | `monitoring/prometheus/triton_rules.yml` | 평균 latency > 200ms, error rate > 5%, GPU > 90% 등 알림 |
 | **Grafana Dashboard** | `monitoring/grafana/triton_dashboard.json` | 사전 구성된 시각화 대시보드 |
-| **OpenTelemetry Tracing** | `monitoring/otel/otel-collector-config.yaml` + `configs/tracing/otel.txt` | 요청 추적 (Jaeger / Zipkin 전달) |
+| **OpenTelemetry Tracing** | `monitoring/otel/otel-collector-config.yaml` + `configs/tracing/otel.txt` | 별도 배포한 collector/backend에 요청 trace 전달 |
 | **Health Check** | `scripts/health_check.sh` / `/v2/health/live`, `/v2/health/ready` | 서버·모델 상태 확인 |
 | **Statistics API** | `client/stats_client.py` / `GET /v2/models/{name}/stats` | 모델별 추론 횟수·큐 대기·연산 시간 상세 조회 |
 
@@ -306,10 +308,10 @@ triton-inference-server/
 # Helm — dev
 helm install triton deploy/helm/triton -f deploy/helm/triton/values.dev.yaml
 
-# Helm — prod (이미지 태그 지정)
+# Helm — prod (CI가 발행한 40자리 commit SHA 지정)
 helm upgrade --install triton deploy/helm/triton \
   -f deploy/helm/triton/values.prod.yaml \
-  --set image.tag=sha-abc1234
+  --set image.tag=<40-character-commit-sha>
 
 # Helm 롤백
 helm rollback triton 1
@@ -339,7 +341,7 @@ kubectl apply -k deploy/k8s/overlays/staging
 4. **빌드 & 테스트**
    ```bash
    ./scripts/build.sh --env dev
-   docker compose -f deploy/docker/docker-compose.yml up -d
+   docker compose --env-file .env.dev -f deploy/docker/docker-compose.yml up -d
    pytest tests/smoke/ --run-live
    ```
 
@@ -375,11 +377,14 @@ main merge → ci-build-test (빌드 + smoke test + GHCR push)
     ↓
 자동 → cd-staging (staging 배포 + integration test)
     ↓
-수동 승인 → cd-production (prod 배포 + perf baseline 비교)
+수동 승인 → cd-production (prod 배포 + smoke test + 실패 시 자동 rollback)
 ```
 
 Production 배포 입력은 `main`에 포함된 40자리 commit SHA입니다. workflow는 해당 SHA의
 image, Kustomize manifest, smoke test를 같은 revision으로 묶어 실행합니다.
+성능 baseline 비교는 `perf-benchmark.yml`의 주간/수동 GPU workflow가 담당하며 production
+workflow 안에서 자동 실행되지는 않습니다. release 승인 전 같은 image SHA의 최신 결과를
+확인합니다.
 
 ---
 
@@ -431,7 +436,10 @@ model_warmup [
   {
     name: "warmup"
     batch_size: 1
-    inputs { key: "INPUT" value: { data_type: TYPE_FP32 dims: [3, 224, 224] } }
+    inputs {
+      key: "INPUT"
+      value: { data_type: TYPE_FP32 dims: [3, 224, 224] zero_data: true }
+    }
   }
 ]
 ```
@@ -473,13 +481,16 @@ StatusCode.UNAVAILABLE: failed to connect to all addresses
 
 ---
 
-### OpenTelemetry 트레이스가 Jaeger에 안 보임
+### OpenTelemetry 트레이스가 backend에 안 보임
 
 **체크리스트**:
-1. `configs/tracing/otel.txt` 내 `--trace-config` 값 확인
-2. OTel Collector 실행 여부 — `docker compose ps` 또는 `kubectl get pods`
-3. Triton 서버 기동 시 `--trace-config=triton-server-name=my-service` 인수 포함 확인
-4. Jaeger UI 포트 — 기본 16686 (docker-compose.prod.yml에서 확인)
+1. `configs/tracing/otel.txt`의 인수를 실제 Triton Deployment/Compose에 추가했는지 확인
+2. `monitoring/otel/otel-collector-config.yaml`을 별도 collector 배포에 적용했는지 확인
+3. Triton Pod에서 collector `:4318` endpoint로 연결되는지 확인
+4. collector의 `debug` exporter 로그와 trace backend 수신 상태 확인
+
+기본 Docker Compose와 Kubernetes overlay는 OTel Collector나 Jaeger를 자동 배포하지 않습니다.
+조직의 collector/backend가 준비된 환경에서 opt-in으로 연결합니다.
 
 ---
 
@@ -489,7 +500,7 @@ StatusCode.UNAVAILABLE: failed to connect to all addresses
 1. 서버 인수에 `--cache-config=local,size=...` 지정 확인 (`configs/prod.txt`)
 2. `config.pbtxt`에 `response_cache { enable: true }` 추가 확인
 3. 입력이 완전히 동일한지 확인 (바이트 단위 일치해야 캐시 히트)
-4. `python client/stats_client.py --model my_model` 으로 캐시 히트율 확인
+4. Grafana Cache Hit Rate panel 또는 Prometheus cache metric으로 hit ratio 확인
 
 ---
 

@@ -60,12 +60,14 @@ sequenceDiagram
     participant Dev as Developer
     participant CI as CI
     participant Stg as Staging Triton
+    participant Perf as GPU Perf Workflow
     participant Prod as Production Triton
     Dev->>CI: PR with config/model changes
     CI->>CI: validate.sh, pytest config, lint
     CI->>CI: build model_repository + serving image
     CI->>Stg: deploy same image SHA with explicit mode
-    Stg->>Stg: smoke, integration, perf baseline
+    Stg->>Stg: integration contract test
+    CI->>Perf: weekly or manual benchmark
     Dev->>Prod: approve release
     Prod->>Prod: rolling deploy / explicit load
     Prod->>Prod: monitor alerts and stats
@@ -78,6 +80,11 @@ branch 밖 commit이나 mutable tag는 production 입력으로 허용하지 않�
 기본 image publish 단계도 40자리 commit SHA tag만 생성하며 `main`이나 `latest` tag는 만들지
 않습니다. 사람이 mutable tag를 release 입력으로 오인할 가능성을 배포 이전에 제거하기 위한
 정책입니다.
+
+성능 비교는 production deploy job 안에서 실행되지 않습니다. self-hosted GPU runner의
+`perf-benchmark.yml`을 주간 또는 수동으로 실행하고, 승인자는 배포할 image SHA와 같은 revision의
+결과 artifact를 확인합니다. 성능 회귀를 강제 gate로 쓸 조직은 이 결과를 production
+Environment 승인 조건에 연결합니다.
 
 기본 pipeline은 model repository를 serving image에 포함하므로 image SHA 하나가 runtime과 모델
 세트를 함께 식별합니다. 대형 모델을 object storage/PVC로 분리하면 model revision과 checksum을

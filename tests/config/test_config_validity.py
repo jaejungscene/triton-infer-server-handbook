@@ -382,6 +382,26 @@ class TestDeploymentRuntimeArgs:
         assert "tritonserver" not in triton["command"]
         assert triton["pull_policy"] == "always"
 
+    def test_development_compose_environment_controls_are_effective(self, project_root):
+        compose = self._load_yaml(
+            os.path.join(project_root, "deploy", "docker", "docker-compose.yml")
+        )
+        triton = compose["services"]["triton"]
+
+        assert triton["image"].startswith("${TRITON_DEV_IMAGE:-")
+        assert all("${HOST_BIND_ADDRESS:-" in port for port in triton["ports"])
+        assert "${MODEL_REPOSITORY_PATH:-" in triton["volumes"][0]
+        assert any("${CACHE_SIZE:-" in arg for arg in triton["command"].split())
+
+    def test_readme_does_not_claim_perf_runs_during_production_deploy(
+        self, project_root
+    ):
+        with open(os.path.join(project_root, "README.md")) as readme_file:
+            readme = readme_file.read()
+
+        assert "prod 배포 + perf baseline 비교" not in readme
+        assert "perf-benchmark.yml" in readme
+
 
 class TestReleaseWorkflow:
     """배포 image와 manifest/test revision이 어긋나지 않는지 검사"""

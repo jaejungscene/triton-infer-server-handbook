@@ -28,7 +28,7 @@ services:
       - --log-verbose=0
       - --allow-metrics=true
       - --allow-gpu-metrics=true
-      - --cache-config=local,size=67108864
+      - --cache-config=local,size=${CACHE_SIZE:-67108864}
       - --rate-limit=execution_count
       - --http-thread-count=8
       - --grpc-infer-thread-count=8
@@ -52,6 +52,8 @@ services:
     logging: *default-logging
 
   redis:
+    # 이 profile은 Redis dependency만 시작합니다. Triton은 검증된 Redis cache
+    # plugin을 release image에 포함하고 command를 바꾸기 전까지 local cache를 사용합니다.
     image: redis:8.6.4-alpine
     profiles: ["redis-cache"]
     expose:

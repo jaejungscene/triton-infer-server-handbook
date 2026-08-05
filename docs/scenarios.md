@@ -19,7 +19,7 @@
 확인:
 
 - `./scripts/validate.sh`
-- `docker compose -f deploy/docker/docker-compose.yml up -d`
+- `docker compose --env-file .env.dev -f deploy/docker/docker-compose.yml up -d`
 - `./scripts/health_check.sh`
 - `python client/stats_client.py --model <model_name>`
 
