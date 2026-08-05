@@ -14,6 +14,8 @@ on:
       - 'models/**'
       - 'configs/**'
       - 'scripts/**'
+      - 'client/**'
+      - 'tests/**'
       - 'deploy/docker/**'
       - '.github/**'
       - 'requirements*.txt'
@@ -87,6 +89,7 @@ jobs:
             --model-repository=/models \
             --model-control-mode=poll \
             --strict-model-config=true \
+            --cache-config=local,size=16777216 \
             --log-verbose=1
 
       - name: Wait for server ready
@@ -115,8 +118,6 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=sha,format=long,prefix=
-            type=ref,event=branch
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Push Docker image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5

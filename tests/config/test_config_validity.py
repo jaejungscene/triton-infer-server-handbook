@@ -416,6 +416,30 @@ class TestReleaseWorkflow:
             assert command in workflow, f"PR CI does not run {command}"
         assert "- 'monitoring/**'" in workflow
 
+    def test_pr_ci_runs_offline_unit_suites(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-validate.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "name: Unit Tests" in workflow
+        assert "pytest tests/client/ tests/scripts/ tests/perf/" in workflow
+
+    def test_main_build_tracks_tests_and_publishes_only_sha_tag(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-build-test.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "- 'client/**'" in workflow
+        assert "- 'tests/**'" in workflow
+        assert "--cache-config=local,size=16777216" in workflow
+        assert "type=sha,format=long,prefix=" in workflow
+        assert "type=ref,event=branch" not in workflow
+        assert "type=raw,value=latest" not in workflow
+
     @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
     def test_external_actions_are_pinned_to_commit_sha(self, project_root):
         workflows_dir = os.path.join(project_root, ".github", "workflows")

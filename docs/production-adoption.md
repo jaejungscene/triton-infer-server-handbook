@@ -63,6 +63,9 @@ Production workflow의 `image_tag`에는 `main`에 포함된 40자리 commit SHA
 그 SHA의 image뿐 아니라 같은 SHA의 Kustomize manifest와 smoke test를 checkout합니다. 승인
 화면에는 image SHA, model manifest revision, config 변경을 하나의 release 단위로 표시하고,
 branch 밖 commit이나 mutable tag는 production 입력으로 허용하지 않습니다.
+기본 image publish 단계도 40자리 commit SHA tag만 생성하며 `main`이나 `latest` tag는 만들지
+않습니다. 사람이 mutable tag를 release 입력으로 오인할 가능성을 배포 이전에 제거하기 위한
+정책입니다.
 
 기본 pipeline은 model repository를 serving image에 포함하므로 image SHA 하나가 runtime과 모델
 세트를 함께 식별합니다. 대형 모델을 object storage/PVC로 분리하면 model revision과 checksum을
