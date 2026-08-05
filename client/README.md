@@ -71,3 +71,15 @@ token을 코드나 저장소에 넣지 말고 secret manager에서 주입합니�
 Shared-memory client는 요청마다 충돌하지 않는 region 이름을 만들고 inference 종료 시 즉시
 해제합니다. 반환 NumPy 배열은 region 해제 전에 복사되므로 client 수명과 독립적입니다.
 출력 shape/dtype은 실제 모델 계약과 정확히 일치해야 하며 빈 tensor는 허용하지 않습니다.
+
+Statistics API CLI는 10초 timeout을 기본 적용하고 HTTPS 인증서 검증을 유지합니다. 인증이
+필요하면 token을 명령행 인수로 노출하지 말고 환경변수로 전달합니다. `inference_count`는 요청
+수가 아니라 batch 원소를 포함한 inference 수이므로 `execution_count`로 나눈 값이 평균 동적
+batch 크기입니다.
+
+```bash
+export TRITON_AUTH_TOKEN='<load from secret manager>'
+python client/stats_client.py \
+  --url https://triton.example.com --model text_classifier --timeout 5
+unset TRITON_AUTH_TOKEN
+```

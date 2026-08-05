@@ -10,15 +10,54 @@ GET /v2/models/{name}/versions/{version}/stats
 
 import argparse
 import json
-import urllib.request
+import os
 import urllib.error
-from typing import Optional
+import urllib.request
+from collections.abc import Mapping
+from urllib.parse import quote, urlsplit
+
+
+DEFAULT_TIMEOUT_SECONDS = 10.0
+
+
+def _validated_base_url(url: str) -> str:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("url must be an absolute HTTP(S) Triton endpoint")
+    return url.rstrip("/")
+
+
+def _request_json(
+    endpoint: str,
+    timeout: float,
+    headers: Mapping[str, str] | None,
+) -> dict:
+    if timeout <= 0:
+        raise ValueError("timeout must be greater than zero")
+
+    request = urllib.request.Request(endpoint, headers=dict(headers or {}))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"HTTP {exc.code}: {exc.reason}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"서버 연결 실패: {exc.reason}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Triton statistics response is not valid JSON") from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("Triton statistics response must be a JSON object")
+    return payload
 
 
 def get_model_stats(
     url: str,
     model_name: str,
-    version: Optional[str] = None,
+    version: str | None = None,
+    *,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    headers: Mapping[str, str] | None = None,
 ) -> dict:
     """
     Triton Statistics API를 호출하여 모델별 추론 통계를 반환합니다.
@@ -31,34 +70,45 @@ def get_model_stats(
     Returns:
         model_stats 딕셔너리
     """
+    if not model_name:
+        raise ValueError("model_name must not be empty")
+
+    base_url = _validated_base_url(url)
+    encoded_model = quote(model_name, safe="")
     if version:
-        endpoint = f"{url}/v2/models/{model_name}/versions/{version}/stats"
+        encoded_version = quote(version, safe="")
+        endpoint = (
+            f"{base_url}/v2/models/{encoded_model}/versions/{encoded_version}/stats"
+        )
     else:
-        endpoint = f"{url}/v2/models/{model_name}/stats"
+        endpoint = f"{base_url}/v2/models/{encoded_model}/stats"
 
-    try:
-        with urllib.request.urlopen(endpoint) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code}: {e.reason} — 모델 '{model_name}'을 확인하세요.") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"서버 연결 실패: {e.reason}") from e
+    return _request_json(endpoint, timeout, headers)
 
 
-def get_all_model_stats(url: str) -> dict:
+def get_all_model_stats(
+    url: str,
+    *,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    headers: Mapping[str, str] | None = None,
+) -> dict:
     """서버 전체 모델 통계를 반환합니다. GET /v2/models/stats"""
-    endpoint = f"{url}/v2/models/stats"
+    endpoint = f"{_validated_base_url(url)}/v2/models/stats"
+    return _request_json(endpoint, timeout, headers)
+
+
+def _as_non_negative_int(value: int | str, field: str) -> int:
     try:
-        with urllib.request.urlopen(endpoint) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"HTTP {e.code}: {e.reason}") from e
-    except urllib.error.URLError as e:
-        raise RuntimeError(f"서버 연결 실패: {e.reason}") from e
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be an integer") from exc
+    if parsed < 0:
+        raise ValueError(f"{field} must not be negative")
+    return parsed
 
 
-def _ns_to_ms(ns: int) -> float:
-    return round(ns / 1_000_000, 3)
+def _ns_to_ms(ns: int | str) -> float:
+    return round(_as_non_negative_int(ns, "duration ns") / 1_000_000, 3)
 
 
 def print_summary(stats: dict) -> None:
@@ -81,13 +131,17 @@ def print_summary(stats: dict) -> None:
     for entry in model_stats_list:
         name = entry.get("name", "unknown")
         version = entry.get("version", "-")
-        inf_count = entry.get("inference_count", 0)
-        exec_count = entry.get("execution_count", 0)
+        inf_count = _as_non_negative_int(
+            entry.get("inference_count", 0), "inference_count"
+        )
+        exec_count = _as_non_negative_int(
+            entry.get("execution_count", 0), "execution_count"
+        )
 
         print(f"\n{'=' * 55}")
         print(f"  모델: {name}  (버전: {version})")
         print(f"{'=' * 55}")
-        print(f"  총 추론 요청수  : {inf_count:,}")
+        print(f"  총 inference 수 : {inf_count:,}")
         print(f"  실제 실행 횟수  : {exec_count:,}")
 
         if exec_count > 0 and inf_count > 0:
@@ -109,7 +163,9 @@ def print_summary(stats: dict) -> None:
             ]:
                 stat = inf_stats.get(key)
                 if stat:
-                    count = stat.get("count", 0)
+                    count = _as_non_negative_int(
+                        stat.get("count", 0), f"inference_stats.{key}.count"
+                    )
                     total_ms = _ns_to_ms(stat.get("ns", 0))
                     avg_ms = round(total_ms / count, 3) if count > 0 else 0
                     print(f"    {label:<12}: 총 {total_ms:>10,.3f} ms  |  평균 {avg_ms:>8,.3f} ms  |  횟수 {count:,}")
@@ -141,12 +197,29 @@ def main() -> None:
     parser.add_argument("--version", help="모델 버전 (생략 시 최신)")
     parser.add_argument("--all", action="store_true", help="전체 모델 통계 조회")
     parser.add_argument("--json", action="store_true", help="JSON 원본 출력")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help="HTTP timeout seconds (default: 10)",
+    )
     args = parser.parse_args()
 
+    token = os.getenv("TRITON_AUTH_TOKEN")
+    headers = {"Authorization": f"Bearer {token}"} if token else None
+
     if args.all:
-        stats = get_all_model_stats(args.url)
+        stats = get_all_model_stats(
+            args.url, timeout=args.timeout, headers=headers
+        )
     elif args.model:
-        stats = get_model_stats(args.url, args.model, args.version)
+        stats = get_model_stats(
+            args.url,
+            args.model,
+            args.version,
+            timeout=args.timeout,
+            headers=headers,
+        )
     else:
         parser.error("--model 또는 --all 중 하나를 지정하세요.")
 
