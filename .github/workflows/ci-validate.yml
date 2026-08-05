@@ -113,7 +113,7 @@ jobs:
       - name: Validate Docker Compose
         run: |
           docker compose -f deploy/docker/docker-compose.yml config --quiet
-          GRAFANA_ADMIN_PASSWORD=ci-validation \
+          TRITON_IMAGE=triton-server:ci-validation GRAFANA_ADMIN_PASSWORD=ci-validation \
             docker compose -f deploy/docker/docker-compose.prod.yml config --quiet
 
       - name: Validate Prometheus config and rules

@@ -22,14 +22,13 @@ RUN pip install --no-cache-dir -r /tmp/requirements-model.txt
 COPY model_repository/ /models/
 
 # 스크립트 복사 (health check 등)
-COPY scripts/health_check.sh /opt/scripts/health_check.sh
-RUN chmod +x /opt/scripts/health_check.sh
+COPY --chmod=755 scripts/health_check.sh /opt/scripts/health_check.sh
 
 # Prometheus metrics
 EXPOSE 8000 8001 8002
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD curl -f http://localhost:8000/v2/health/ready || exit 1
+    CMD curl -fsS http://localhost:8000/v2/health/ready || exit 1
 
 ENTRYPOINT ["tritonserver"]
 CMD ["--model-repository=/models"]

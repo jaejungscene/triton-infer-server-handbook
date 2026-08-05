@@ -137,6 +137,21 @@ Docker Compose production 예시는 단일 호스트 검증용이며 기본적�
 통해 수행하고, `.env.prod`의 `GRAFANA_ADMIN_PASSWORD`를 채우기 전에는 기동하지 않습니다.
 `.env.prod`와 `.env.staging`은 secret이 들어갈 수 있으므로 Git에 추적하지 않습니다.
 
+production Compose의 `TRITON_IMAGE`에는 CI가 `model_repository`를 포함해 만든 commit SHA tag
+또는 digest만 지정합니다. 이 파일은 host의 가변 `model_repository`를 mount하지 않습니다.
+단일 호스트에서 release 후보를 재현할 때도 아래처럼 image와 모델 세트를 같은 단위로
+검증합니다.
+
+```bash
+./scripts/build.sh --env prod --clean
+docker build -f deploy/docker/Dockerfile \
+  --build-arg VCS_REF="$(git rev-parse HEAD)" \
+  -t "triton-server:$(git rev-parse HEAD)" .
+TRITON_IMAGE="triton-server:$(git rev-parse HEAD)" \
+GRAFANA_ADMIN_PASSWORD='<secret>' \
+docker compose -f deploy/docker/docker-compose.prod.yml up -d
+```
+
 Kubernetes에서도 Triton의 8000/8001 port를 그대로 인터넷에 노출하지 않습니다. Ingress/API
 gateway에서 사용자 인증을 적용하고, repository load/unload API는 배포 identity만 접근할 수
 있게 경로 또는 별도 내부 gateway로 분리합니다. 제공하는 prod Kustomize 예시는 TLS와 basic

@@ -335,6 +335,21 @@ class TestDeploymentRuntimeArgs:
         assert helm_values["automountServiceAccountToken"] is False
         assert helm_values["startupProbe"]["failureThreshold"] >= 30
 
+    def test_production_compose_uses_release_image_contract(self, project_root):
+        compose = self._load_yaml(
+            os.path.join(
+                project_root, "deploy", "docker", "docker-compose.prod.yml"
+            )
+        )
+        triton = compose["services"]["triton"]
+
+        assert triton["image"].startswith("${TRITON_IMAGE:?")
+        assert "volumes" not in triton, \
+            "production must use the model repository embedded in the release image"
+        assert triton["command"][0].startswith("--")
+        assert "tritonserver" not in triton["command"]
+        assert triton["pull_policy"] == "always"
+
 
 class TestReleaseWorkflow:
     """배포 image와 manifest/test revision이 어긋나지 않는지 검사"""

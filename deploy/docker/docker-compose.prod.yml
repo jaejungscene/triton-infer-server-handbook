@@ -2,7 +2,7 @@
 # Docker Compose — Production 환경 (Cache + Monitoring)
 # =============================================================================
 # 사용법:
-#   cp .env.example .env.prod  # 비밀번호와 포트 확인
+#   cp .env.example .env.prod  # release image, 비밀번호와 포트 확인
 #   docker compose --env-file .env.prod -f deploy/docker/docker-compose.prod.yml up -d
 # =============================================================================
 
@@ -14,26 +14,25 @@ x-logging: &default-logging
 
 services:
   triton:
-    image: nvcr.io/nvidia/tritonserver:24.08-py3
+    image: ${TRITON_IMAGE:?set TRITON_IMAGE to the validated release image}
+    pull_policy: always
     ports:
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${TRITON_HTTP_PORT:-8000}:8000"
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${TRITON_GRPC_PORT:-8001}:8001"
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${TRITON_METRICS_PORT:-8002}:8002"
-    volumes:
-      - ../../model_repository:/models:ro
-    command: >
-      tritonserver
-        --model-repository=/models
-        --model-control-mode=explicit
-        --load-model=*
-        --strict-model-config=true
-        --log-verbose=0
-        --allow-metrics=true
-        --allow-gpu-metrics=true
-        --cache-config=local,size=67108864
-        --rate-limit=execution_count
-        --http-thread-count=8
-        --grpc-infer-thread-count=8
+    command:
+      - --model-repository=/models
+      - --model-control-mode=explicit
+      - --load-model=*
+      - --strict-model-config=true
+      - --log-verbose=0
+      - --allow-metrics=true
+      - --allow-gpu-metrics=true
+      - --cache-config=local,size=67108864
+      - --rate-limit=execution_count
+      - --http-thread-count=8
+      - --grpc-infer-thread-count=8
+    init: true
     deploy:
       resources:
         reservations:
