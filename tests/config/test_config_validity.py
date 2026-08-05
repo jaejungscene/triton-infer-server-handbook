@@ -170,6 +170,17 @@ class TestManifest:
                 for candidate in payload_candidates
             ), f"Enabled model {model['target']} has no runtime payload"
 
+    def test_string_warmup_uses_generated_data(self, serving_dir):
+        config_path = os.path.join(
+            serving_dir, "nlp", "text_classifier", "config.pbtxt"
+        )
+        with open(config_path) as config_file:
+            config = config_file.read()
+
+        assert "model_warmup" in config
+        assert "zero_data: true" in config
+        assert "input_data_file" not in config
+
 
 @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
 class TestDeploymentRuntimeArgs:
@@ -199,6 +210,8 @@ class TestDeploymentRuntimeArgs:
                 f"{filename} must set the model repository"
             assert "--allow-metrics=true" in args, \
                 f"{filename} must expose Prometheus metrics"
+            assert any(arg.startswith("--cache-config=") for arg in args), \
+                f"{filename} must configure the enabled model response cache"
             if "--model-control-mode=explicit" in args:
                 assert "--load-model=*" in args, \
                     f"{filename} explicit mode must bootstrap the validated model set"
@@ -239,6 +252,8 @@ class TestDeploymentRuntimeArgs:
                 f"{overlay} overlay must not repeat the image entrypoint"
             assert "--model-repository=/models" in args, \
                 f"{overlay} overlay must set the model repository"
+            assert any(arg.startswith("--cache-config=") for arg in args), \
+                f"{overlay} must configure the enabled model response cache"
             assert expected_args.issubset(set(args)), \
                 f"{overlay} overlay missing expected args: {expected_args - set(args)}"
 

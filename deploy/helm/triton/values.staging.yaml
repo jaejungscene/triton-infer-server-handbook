@@ -10,6 +10,7 @@ tritonArgs:
   - --strict-model-config=true
   - --allow-metrics=true
   - --allow-gpu-metrics=true
+  - --cache-config=local,size=33554432  # 운영 전 cache 동작 검증
   - --model-control-mode=explicit      # 명시적 로드만 허용
   - --load-model=*                     # 배포 시 저장소의 모델을 초기 로드
   - --log-verbose=1

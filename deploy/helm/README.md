@@ -37,7 +37,7 @@ helm upgrade --install triton deploy/helm/triton \
 
 | 파일 | replicas | 모델 제어 | HPA | PDB | 설명 |
 |------|----------|-----------|-----|-----|------|
-| `values.dev.yaml` | 1 | poll (파일 감지) | 없음 | 없음 | 개발용, verbose 로그 |
+| `values.dev.yaml` | 1 | poll (파일 감지) | 없음 | 없음 | 개발용, 16 MiB cache, verbose 로그 |
 | `values.staging.yaml` | 2 | explicit | 없음 | 사용 (min 1) | 스테이징 |
 | `values.prod.yaml` | 3 | explicit + 캐시 | 사용 (3~10) | 사용 (min 2) | 프로덕션 |
 
@@ -50,6 +50,10 @@ staging/prod는 `explicit`와 `--load-model=*`를 함께 사용합니다. `expli
 시작 시 아무 모델도 로드되지 않으므로, 저장소 전체가 배포 승인 단위인 환경에서만 이
 조합을 사용합니다. 모델을 개별 승인하는 조직은 `--load-model=*`를 제거하고 배포 파이프라인의
 명시적 load 단계가 성공한 뒤에만 트래픽을 연결해야 합니다.
+
+기본 활성 모델인 `text_classifier`가 `response_cache`를 사용하므로 모든 환경에 local cache를
+설정합니다. 용량은 dev 16 MiB, staging 32 MiB, prod 64 MiB의 예시값이며 실제 hit ratio와
+메모리 예산을 측정해 조정합니다.
 
 HPA가 활성화되면 Deployment의 `spec.replicas`는 렌더링하지 않습니다. Helm upgrade가
 HPA가 계산한 replica 수를 다시 기본값으로 덮지 않게 하기 위한 설정입니다. startup probe가

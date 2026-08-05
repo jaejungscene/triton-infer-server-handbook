@@ -71,8 +71,8 @@ Helm도 동일하게 `values*.yaml`의 `tritonArgs`로 실행 인자를 주입�
 
 | 환경 | 핵심 인자 | 목적 |
 |------|-----------|------|
-| dev | `--model-control-mode=poll`, `--repository-poll-secs=5` | 모델 수정 후 빠른 재로드 |
-| staging | `explicit`, `--load-model=*`, `--log-verbose=1` | 검증된 저장소 전체를 시작 시 로드하고 이후 변경은 API로 제한 |
+| dev | `poll`, `--repository-poll-secs=5`, local cache 16 MiB | 모델 수정 후 빠른 재로드와 cache 계약 유지 |
+| staging | `explicit`, `--load-model=*`, local cache 32 MiB | 검증된 저장소 전체를 시작 시 로드하고 이후 변경은 API로 제한 |
 | prod | `explicit`, `--load-model=*`, cache, rate-limit | 배포 직후 서비스 가능한 모델 세트와 예측 가능한 변경 정책 확보 |
 
 `explicit`만 지정하면 Triton은 시작 시 모델을 하나도 로드하지 않습니다. 이 예시는 배포

@@ -6,5 +6,8 @@
 --model-control-mode=poll
 --repository-poll-secs=5
 
+# 기본 활성 모델이 response_cache를 사용하므로 작은 local cache를 제공
+--cache-config=local,size=16777216
+
 # 상세 로깅
 --log-verbose=2

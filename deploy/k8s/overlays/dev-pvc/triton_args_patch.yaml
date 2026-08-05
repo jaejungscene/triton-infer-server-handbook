@@ -12,6 +12,7 @@ spec:
             - --strict-model-config=true
             - --allow-metrics=true
             - --allow-gpu-metrics=true
+            - --cache-config=local,size=16777216
             - --model-control-mode=poll
             - --repository-poll-secs=5
             - --log-verbose=2

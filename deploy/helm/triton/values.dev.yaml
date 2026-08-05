@@ -10,6 +10,7 @@ tritonArgs:
   - --strict-model-config=true
   - --allow-metrics=true
   - --allow-gpu-metrics=true
+  - --cache-config=local,size=16777216
   - --model-control-mode=poll          # 파일 변경 감지 (개발 편의)
   - --repository-poll-secs=5
   - --log-verbose=2                    # 상세 로그

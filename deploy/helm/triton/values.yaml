@@ -50,6 +50,7 @@ tritonArgs:
   - --strict-model-config=true
   - --allow-metrics=true
   - --allow-gpu-metrics=true
+  - --cache-config=local,size=33554432
   - --log-verbose=0
 
 # ----- 서비스 -----

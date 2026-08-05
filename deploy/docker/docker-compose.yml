@@ -25,6 +25,7 @@ services:
         --strict-model-config=true
         --allow-metrics=true
         --allow-gpu-metrics=true
+        --cache-config=local,size=16777216
     deploy:
       resources:
         reservations:
