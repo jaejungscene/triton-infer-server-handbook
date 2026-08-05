@@ -106,7 +106,9 @@ release metadata에 추가하고, staging에서 검증한 바로 그 revision만
 기본 Triton Prometheus 지연 metric은 histogram이 아니라 누적 counter입니다. 따라서
 Grafana의 운영 대시보드는 `rate(duration_us) / rate(success_count)`로 평균 지연을 표시하고,
 p95/p99는 `perf_analyzer` 또는 trace backend에서 확인합니다. 요청량이 적어도 error ratio가
-왜곡되지 않도록 alert 분모를 임의의 `1`로 올리지 않습니다.
+왜곡되지 않도록 alert 분모를 임의의 `1`로 올리지 않고, 최소 0.1 req/s traffic 조건을 별도로
+적용합니다. query와 alert는 `environment` label을 보존하므로 여러 환경을 한 Prometheus에서
+수집해도 staging 장애가 production 수치에 합산되지 않습니다.
 
 배포 후:
 

@@ -1,0 +1,37 @@
+rule_files:
+  - triton_rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: sustained production errors trigger an alert
+    interval: 1m
+    input_series:
+      - series: 'nv_inference_request_success{environment="production",model="classifier",version="1"}'
+        values: '0+60x15'
+      - series: 'nv_inference_request_failure{environment="production",model="classifier",version="1"}'
+        values: '0+6x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TritonHighErrorRate
+        exp_alerts:
+          - exp_labels:
+              environment: production
+              model: classifier
+              version: "1"
+              severity: critical
+            exp_annotations:
+              summary: High error rate on production/classifier
+              description: Error rate is 9.091%
+
+  - name: sparse errors do not page
+    interval: 1m
+    input_series:
+      - series: 'nv_inference_request_success{environment="production",model="batch",version="1"}'
+        values: '0+1x15'
+      - series: 'nv_inference_request_failure{environment="production",model="batch",version="1"}'
+        values: '0+1x15'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TritonHighErrorRate
+        exp_alerts: []

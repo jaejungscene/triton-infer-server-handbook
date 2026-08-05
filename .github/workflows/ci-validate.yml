@@ -144,6 +144,11 @@ jobs:
             -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
             prom/prometheus:v3.13.0 \
             check rules /etc/prometheus/triton_rules.yml
+          docker run --rm --entrypoint /bin/promtool \
+            -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
+            -w /etc/prometheus \
+            prom/prometheus:v3.13.0 \
+            test rules triton_rules_test.yml
 
       - name: Validate shell syntax
         run: |
