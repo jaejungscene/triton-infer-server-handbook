@@ -30,6 +30,7 @@ jobs:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      KUBE_CONTEXT_STAGING: ${{ vars.KUBE_CONTEXT_STAGING }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -52,6 +53,12 @@ jobs:
           mkdir -p ~/.kube
           umask 077
           printf '%s' "${KUBE_CONFIG_STAGING}" | base64 -d > ~/.kube/config
+          if [[ -z "${KUBE_CONTEXT_STAGING}" ]]; then
+            echo "KUBE_CONTEXT_STAGING environment variable is required" >&2
+            exit 1
+          fi
+          kubectl config use-context "${KUBE_CONTEXT_STAGING}"
+          test "$(kubectl config current-context)" = "${KUBE_CONTEXT_STAGING}"
         env:
           KUBE_CONFIG_STAGING: ${{ secrets.KUBE_CONFIG_STAGING }}
 

@@ -37,6 +37,7 @@ jobs:
     environment: production  # ★ 수동 승인 필수 (GitHub Settings → Environments)
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      KUBE_CONTEXT_PROD: ${{ vars.KUBE_CONTEXT_PROD }}
     steps:
       - name: Validate image tag
         if: ${{ github.event.inputs.rollback != 'true' }}
@@ -86,6 +87,12 @@ jobs:
           mkdir -p ~/.kube
           umask 077
           printf '%s' "${KUBE_CONFIG_PROD}" | base64 -d > ~/.kube/config
+          if [[ -z "${KUBE_CONTEXT_PROD}" ]]; then
+            echo "KUBE_CONTEXT_PROD environment variable is required" >&2
+            exit 1
+          fi
+          kubectl config use-context "${KUBE_CONTEXT_PROD}"
+          test "$(kubectl config current-context)" = "${KUBE_CONTEXT_PROD}"
         env:
           KUBE_CONFIG_PROD: ${{ secrets.KUBE_CONFIG_PROD }}
 

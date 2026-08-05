@@ -27,11 +27,21 @@ runs:
   steps:
     - name: Wait for Triton ready
       shell: bash
+      env:
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_CONTAINER_NAME: ${{ inputs.container-name }}
       run: |
-        URL="${{ inputs.url }}"
-        TIMEOUT="${{ inputs.timeout }}"
+        URL="${INPUT_URL}"
+        TIMEOUT="${INPUT_TIMEOUT}"
+        CONTAINER_NAME="${INPUT_CONTAINER_NAME}"
         ELAPSED=0
         INTERVAL=5
+
+        if [[ ! "${TIMEOUT}" =~ ^[1-9][0-9]*$ ]]; then
+          echo "ERROR: timeout must be a positive integer" >&2
+          exit 2
+        fi
 
         echo "Waiting for Triton server at ${URL} (timeout: ${TIMEOUT}s)"
 
@@ -47,7 +57,7 @@ runs:
         done
 
         echo "ERROR: Triton server did not become ready within ${TIMEOUT}s"
-        if [[ -n "${{ inputs.container-name }}" ]]; then
-          docker logs "${{ inputs.container-name }}" 2>&1 | tail -50 || true
+        if [[ -n "${CONTAINER_NAME}" ]]; then
+          docker logs -- "${CONTAINER_NAME}" 2>&1 | tail -50 || true
         fi
         exit 1

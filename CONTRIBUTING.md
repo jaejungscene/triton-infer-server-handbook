@@ -42,6 +42,10 @@ GitHub Actions의 외부 `uses:`는 release tag가 아니라 40자리 commit SHA
 upstream release note와 새 SHA를 함께 검토합니다. repository 내부 composite action은
 `./.github/actions/...` 상대 경로를 사용합니다.
 
+`requirements*.txt`의 실행 의존성은 범위가 아닌 `==` 버전으로 고정합니다. 버전 갱신은
+관련 패키지를 한 번에 무작정 올리지 않고 unit/config/smoke 결과와 converter image build를
+확인한 별도 PR로 수행합니다.
+
 ## 커밋 메시지
 
 ```

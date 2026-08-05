@@ -440,6 +440,51 @@ class TestReleaseWorkflow:
         assert "type=ref,event=branch" not in workflow
         assert "type=raw,value=latest" not in workflow
 
+    def test_deploy_workflows_verify_kube_context(self, project_root):
+        workflow_expectations = {
+            "cd-staging.yml": "KUBE_CONTEXT_STAGING",
+            "cd-production.yml": "KUBE_CONTEXT_PROD",
+        }
+        for filename, variable in workflow_expectations.items():
+            path = os.path.join(project_root, ".github", "workflows", filename)
+            with open(path) as workflow_file:
+                workflow = workflow_file.read()
+
+            assert f"kubectl config use-context \"${{{variable}}}\"" in workflow
+            assert f"kubectl config current-context)\" = \"${{{variable}}}\"" in workflow
+
+    def test_composite_action_inputs_are_not_interpolated_in_shell(self, project_root):
+        action_path = os.path.join(
+            project_root, ".github", "actions", "triton-health-check", "action.yml"
+        )
+        with open(action_path) as action_file:
+            action = yaml.safe_load(action_file)
+
+        for step in action["runs"]["steps"]:
+            assert "${{ inputs." not in step.get("run", ""), \
+                "action inputs must flow through env before reaching shell"
+
+    def test_requirement_versions_are_exactly_pinned(self, project_root):
+        for filename in (
+            "requirements-dev.txt",
+            "requirements-integration.txt",
+            "requirements-model.txt",
+            "requirements-converter.txt",
+        ):
+            path = os.path.join(project_root, filename)
+            with open(path) as requirements_file:
+                requirements = [
+                    line.strip()
+                    for line in requirements_file
+                    if line.strip() and not line.lstrip().startswith("#")
+                ]
+
+            for requirement in requirements:
+                if requirement.startswith("-r "):
+                    continue
+                assert re.match(r"^[A-Za-z0-9_.-]+(?:\[[^]]+\])?==[^=]+$", requirement), \
+                    f"{filename}: dependency must be exactly pinned: {requirement}"
+
     @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
     def test_external_actions_are_pinned_to_commit_sha(self, project_root):
         workflows_dir = os.path.join(project_root, ".github", "workflows")

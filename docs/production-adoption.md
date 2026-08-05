@@ -43,6 +43,18 @@
 
 ## 배포 흐름
 
+GitHub의 `staging`, `production` Environment에는 다음 값을 각각 등록합니다. kubeconfig 안에
+여러 cluster가 있더라도 workflow는 기대 context를 명시적으로 선택하고 다시 확인하므로,
+잘못된 기본 context로 다른 cluster에 배포하지 않습니다.
+
+| Environment | Secret | Variable |
+|-------------|--------|----------|
+| `staging` | `KUBE_CONFIG_STAGING` (base64) | `KUBE_CONTEXT_STAGING` |
+| `production` | `KUBE_CONFIG_PROD` (base64) | `KUBE_CONTEXT_PROD` |
+
+production Environment에는 required reviewer를 설정하고, 두 kubeconfig credential은 해당
+namespace 배포에 필요한 최소 RBAC만 부여합니다.
+
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
