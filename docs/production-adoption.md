@@ -115,7 +115,10 @@ Grafana의 운영 대시보드는 `rate(duration_us) / rate(success_count)`로 �
 p95/p99는 `perf_analyzer` 또는 trace backend에서 확인합니다. 요청량이 적어도 error ratio가
 왜곡되지 않도록 alert 분모를 임의의 `1`로 올리지 않고, 최소 0.1 req/s traffic 조건을 별도로
 적용합니다. query와 alert는 `environment` label을 보존하므로 여러 환경을 한 Prometheus에서
-수집해도 staging 장애가 production 수치에 합산되지 않습니다.
+수집해도 staging 장애가 production 수치에 합산되지 않습니다. 모든 scrape target에는
+`service="triton"`과 `environment="staging|production"` label을 붙여야 합니다. alert는
+`service`를 안정적인 discovery 계약으로 사용하며, `TritonMetricsMissing`은 target 자체가
+5분 이상 사라진 경우를 `up == 0`과 별도로 감지합니다.
 
 배포 후:
 

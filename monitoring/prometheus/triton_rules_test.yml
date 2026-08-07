@@ -35,3 +35,69 @@ tests:
       - eval_time: 10m
         alertname: TritonHighErrorRate
         exp_alerts: []
+
+  - name: sustained latency and queue time trigger warnings
+    interval: 1m
+    input_series:
+      - series: 'nv_inference_request_success{environment="production",model="classifier",version="1"}'
+        values: '0+60x20'
+      - series: 'nv_inference_request_duration_us{environment="production",model="classifier",version="1"}'
+        values: '0+18000000x20'
+      - series: 'nv_inference_queue_duration_us{environment="production",model="classifier",version="1"}'
+        values: '0+7200000x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: TritonHighLatency
+        exp_alerts:
+          - exp_labels:
+              environment: production
+              model: classifier
+              version: "1"
+              severity: warning
+            exp_annotations:
+              summary: High inference latency on production/classifier
+              description: '5m average latency is 300000us (threshold: 200ms)'
+      - eval_time: 17m
+        alertname: TritonQueueBacklog
+        exp_alerts:
+          - exp_labels:
+              environment: production
+              model: classifier
+              version: "1"
+              severity: warning
+            exp_annotations:
+              summary: Queue backlog on production/classifier
+              description: Queue wait time is 120000us
+
+  - name: unreachable target triggers server down
+    interval: 1m
+    input_series:
+      - series: 'up{environment="production",instance="triton:8002",job="custom-monitor",service="triton"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: TritonServerDown
+        exp_alerts:
+          - exp_labels:
+              environment: production
+              instance: triton:8002
+              job: custom-monitor
+              service: triton
+              severity: critical
+            exp_annotations:
+              summary: Triton server is down
+              description: Triton inference server is unreachable
+
+  - name: missing target triggers discovery alert
+    interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: TritonMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              service: triton
+              severity: critical
+            exp_annotations:
+              summary: Triton metrics target is missing
+              description: No Triton scrape target has been discovered for at least 5 minutes
