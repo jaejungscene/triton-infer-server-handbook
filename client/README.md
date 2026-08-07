@@ -63,7 +63,7 @@ async with TritonAsyncClient(config) as client:
     outputs = await client.infer_numpy(
         "text_classifier",
         {"INPUT_TEXT": np.array([["hello"]], dtype=object)},
-        ["OUTPUT_CLASS", "CONFIDENCE"],
+        ["LABEL", "CONFIDENCE"],
     )
 ```
 

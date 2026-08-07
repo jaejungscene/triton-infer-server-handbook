@@ -53,7 +53,9 @@ Smoke test는 Repository Index API에서 ready 모델이 최소 하나 확인되
 
 Integration suite의 `test_text_classifier.py`는 기본 manifest의 필수 E2E gate입니다. 모델
 readiness, BYTES input, label/confidence output 계약을 실제 inference로 확인하며 실패를 skip하지
-않습니다. LLM/vision처럼 manifest에서 기본 비활성인 선택 모델은 로드되지 않았을 때만
+않습니다. `test_cache.py`도 같은 필수 모델에 고유 입력을 두 번 보내 miss와 hit counter가
+각각 증가하는지 강제하므로, model config 또는 server `--cache-config`가 빠지면 staging을
+실패시킵니다. LLM/vision처럼 manifest에서 기본 비활성인 선택 모델은 로드되지 않았을 때만
 skip하고, 일단 ready인 모델의 연결·설정·inference 오류는 배포 실패로 처리합니다.
 
 성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,
