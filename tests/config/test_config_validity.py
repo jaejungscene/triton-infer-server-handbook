@@ -553,6 +553,19 @@ class TestReleaseWorkflow:
         assert "type=ref,event=branch" not in workflow
         assert "type=raw,value=latest" not in workflow
 
+    def test_perf_benchmark_uses_release_runtime_contract(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "perf-benchmark.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "./scripts/build.sh --env prod --clean" in workflow
+        assert "--file deploy/docker/Dockerfile" in workflow
+        assert "--tag triton-server:perf" in workflow
+        assert "--cache-config=local,size=67108864" in workflow
+        assert "-v $(pwd)/model_repository:/models:ro" not in workflow
+
     def test_deploy_workflows_verify_kube_context(self, project_root):
         workflow_expectations = {
             "cd-staging.yml": "KUBE_CONTEXT_STAGING",

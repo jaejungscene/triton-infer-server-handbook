@@ -42,7 +42,15 @@ jobs:
         run: python -m pip install -r requirements-integration.txt
 
       - name: Build model repository
-        run: ./scripts/build.sh --env dev --clean
+        run: ./scripts/build.sh --env prod --clean
+
+      - name: Build release-equivalent image
+        run: |
+          docker build \
+            --file deploy/docker/Dockerfile \
+            --build-arg "VCS_REF=${GITHUB_SHA}" \
+            --tag triton-server:perf \
+            .
 
       - name: Start Triton server
         run: |
@@ -51,12 +59,12 @@ jobs:
             --name triton-perf \
             --gpus all \
             -p 8000:8000 -p 8001:8001 -p 8002:8002 \
-            -v $(pwd)/model_repository:/models:ro \
-            nvcr.io/nvidia/tritonserver:24.08-py3 \
-            tritonserver \
+            triton-server:perf \
               --model-repository=/models \
-              --model-control-mode=poll \
+              --model-control-mode=explicit \
+              --load-model=* \
               --strict-model-config=true \
+              --cache-config=local,size=67108864 \
               --log-verbose=0
 
       - name: Wait for server ready
@@ -95,3 +103,4 @@ jobs:
         run: |
           docker stop triton-perf 2>/dev/null || true
           docker rm triton-perf 2>/dev/null || true
+          docker image rm triton-server:perf 2>/dev/null || true
