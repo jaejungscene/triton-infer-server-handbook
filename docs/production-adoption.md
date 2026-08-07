@@ -43,26 +43,50 @@
 
 ## 배포 흐름
 
+GitHub의 `staging`, `production` Environment에는 다음 값을 각각 등록합니다. kubeconfig 안에
+여러 cluster가 있더라도 workflow는 기대 context를 명시적으로 선택하고 다시 확인하므로,
+잘못된 기본 context로 다른 cluster에 배포하지 않습니다.
+
+| Environment | Secret | Variable |
+|-------------|--------|----------|
+| `staging` | `KUBE_CONFIG_STAGING` (base64) | `KUBE_CONTEXT_STAGING` |
+| `production` | `KUBE_CONFIG_PROD` (base64) | `KUBE_CONTEXT_PROD` |
+
+production Environment에는 required reviewer를 설정하고, 두 kubeconfig credential은 해당
+namespace 배포에 필요한 최소 RBAC만 부여합니다.
+
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
     participant CI as CI
     participant Stg as Staging Triton
+    participant Perf as GPU Perf Workflow
     participant Prod as Production Triton
     Dev->>CI: PR with config/model changes
     CI->>CI: validate.sh, pytest config, lint
     CI->>CI: build model_repository + serving image
-    CI->>Stg: deploy same image SHA with explicit mode
-    Stg->>Stg: smoke, integration, perf baseline
+    CI->>Stg: resolve SHA tag and deploy immutable digest
+    Stg->>Stg: integration contract test
+    CI->>Perf: weekly or manual benchmark
     Dev->>Prod: approve release
     Prod->>Prod: rolling deploy / explicit load
     Prod->>Prod: monitor alerts and stats
 ```
 
-Production workflow의 `image_tag`에는 `main`에 포함된 40자리 commit SHA만 넣습니다. workflow는
-그 SHA의 image뿐 아니라 같은 SHA의 Kustomize manifest와 smoke test를 checkout합니다. 승인
-화면에는 image SHA, model manifest revision, config 변경을 하나의 release 단위로 표시하고,
-branch 밖 commit이나 mutable tag는 production 입력으로 허용하지 않습니다.
+Production workflow의 `image_tag`에는 `main`에 포함된 40자리 commit SHA만 넣습니다. 이 SHA는
+release 선택자이며, workflow는 registry에서 해당 tag의 digest를 해석해 Deployment에는
+`image@sha256:...`를 기록합니다. 같은 SHA의 Kustomize manifest와 smoke test도 checkout하므로
+승인 화면에는 commit SHA, 실제 image digest, model manifest revision, config 변경을 하나의
+release 단위로 표시합니다. branch 밖 commit이나 임의 tag는 production 입력으로 허용하지
+않습니다.
+기본 image publish 단계도 40자리 commit SHA tag만 생성하며 `main`이나 `latest` tag는 만들지
+않습니다. 사람이 mutable tag를 release 입력으로 오인할 가능성을 배포 이전에 제거하기 위한
+정책입니다.
+
+성능 비교는 production deploy job 안에서 실행되지 않습니다. self-hosted GPU runner의
+`perf-benchmark.yml`을 주간 또는 수동으로 실행하고, 승인자는 배포할 image SHA와 같은 revision의
+결과 artifact를 확인합니다. 성능 회귀를 강제 gate로 쓸 조직은 이 결과를 production
+Environment 승인 조건에 연결합니다.
 
 기본 pipeline은 model repository를 serving image에 포함하므로 image SHA 하나가 runtime과 모델
 세트를 함께 식별합니다. 대형 모델을 object storage/PVC로 분리하면 model revision과 checksum을
@@ -91,7 +115,12 @@ release metadata에 추가하고, staging에서 검증한 바로 그 revision만
 기본 Triton Prometheus 지연 metric은 histogram이 아니라 누적 counter입니다. 따라서
 Grafana의 운영 대시보드는 `rate(duration_us) / rate(success_count)`로 평균 지연을 표시하고,
 p95/p99는 `perf_analyzer` 또는 trace backend에서 확인합니다. 요청량이 적어도 error ratio가
-왜곡되지 않도록 alert 분모를 임의의 `1`로 올리지 않습니다.
+왜곡되지 않도록 alert 분모를 임의의 `1`로 올리지 않고, 최소 0.1 req/s traffic 조건을 별도로
+적용합니다. query와 alert는 `environment` label을 보존하므로 여러 환경을 한 Prometheus에서
+수집해도 staging 장애가 production 수치에 합산되지 않습니다. 모든 scrape target에는
+`service="triton"`과 `environment="staging|production"` label을 붙여야 합니다. alert는
+`service`를 안정적인 discovery 계약으로 사용하며, `TritonMetricsMissing`은 target 자체가
+5분 이상 사라진 경우를 `up == 0`과 별도로 감지합니다.
 
 배포 후:
 
@@ -137,10 +166,26 @@ Docker Compose production 예시는 단일 호스트 검증용이며 기본적�
 통해 수행하고, `.env.prod`의 `GRAFANA_ADMIN_PASSWORD`를 채우기 전에는 기동하지 않습니다.
 `.env.prod`와 `.env.staging`은 secret이 들어갈 수 있으므로 Git에 추적하지 않습니다.
 
-Kubernetes에서도 Triton의 8000/8001 port를 그대로 인터넷에 노출하지 않습니다. Ingress/API
-gateway에서 사용자 인증을 적용하고, repository load/unload API는 배포 identity만 접근할 수
-있게 경로 또는 별도 내부 gateway로 분리합니다. 제공하는 prod Kustomize 예시는 TLS와 basic
-auth를 최소선으로 두며, 조직의 OIDC 또는 mTLS 정책으로 교체하는 것을 권장합니다.
+production Compose의 `TRITON_IMAGE`에는 CI가 `model_repository`를 포함해 만든 commit SHA tag
+또는 digest만 지정합니다. 이 파일은 host의 가변 `model_repository`를 mount하지 않습니다.
+단일 호스트에서 release 후보를 재현할 때도 아래처럼 image와 모델 세트를 같은 단위로
+검증합니다.
+
+```bash
+./scripts/build.sh --env prod --clean
+docker build -f deploy/docker/Dockerfile \
+  --build-arg VCS_REF="$(git rev-parse HEAD)" \
+  -t "triton-server:$(git rev-parse HEAD)" .
+TRITON_IMAGE="triton-server:$(git rev-parse HEAD)" \
+GRAFANA_ADMIN_PASSWORD='<secret>' \
+docker compose -f deploy/docker/docker-compose.prod.yml up -d
+```
+
+Kubernetes에서도 Triton의 8000/8001 port를 그대로 인터넷에 노출하지 않습니다. 제공하는
+Ingress는 HTTP `/v2`, health, model API와 gRPC inference/상태/metadata 메서드만 allowlist하며
+repository·trace·shared-memory 제어 API는 외부에서 차단합니다. prod Kustomize 예시는 TLS와
+basic auth를 최소선으로 두므로 조직의 OIDC 또는 mTLS 정책으로 교체합니다. 실제 장애 대응과
+전체 release/긴급 Deployment rollback의 차이는 [장애 대응 Runbook](runbook.md)을 따릅니다.
 
 ## 참고 문서
 

@@ -14,7 +14,7 @@ scrape_configs:
       - targets: ["triton:8002"]
         labels:
           service: triton
-          environment: prod
+          environment: production
 
     # Kubernetes 환경에서는 아래 설정 사용
     # kubernetes_sd_configs:
@@ -23,6 +23,10 @@ scrape_configs:
     #   - source_labels: [__meta_kubernetes_pod_label_app]
     #     regex: triton-server
     #     action: keep
+    #   - target_label: service
+    #     replacement: triton
+    #   - target_label: environment
+    #     replacement: production
     #   - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
     #     action: replace
     #     target_label: __address__

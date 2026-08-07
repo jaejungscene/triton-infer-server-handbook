@@ -46,11 +46,11 @@ lifecycle:
 
 # ----- Triton 서버 인수 -----
 tritonArgs:
-  - tritonserver
   - --model-repository=/models
   - --strict-model-config=true
   - --allow-metrics=true
   - --allow-gpu-metrics=true
+  - --cache-config=local,size=33554432
   - --log-verbose=0
 
 # ----- 서비스 -----
@@ -96,6 +96,19 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 5
   targetCPUUtilizationPercentage: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 60
 
 # ----- PodDisruptionBudget -----
 pdb:

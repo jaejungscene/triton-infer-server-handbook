@@ -17,7 +17,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements-dev.txt
 
-# 전체 실행
+# 기본 전체 실행 (live smoke/integration은 skip)
 pytest tests/
 
 # Config 검증만 (CI에서 주로 사용)
@@ -25,11 +25,13 @@ pytest tests/config/
 
 # Smoke test (Triton 서버 실행 중이어야 함)
 pytest tests/smoke/ \
+  --run-live \
   --triton-url http://localhost:8000 \
   --triton-metrics-url http://localhost:8002
 
 # Integration test
 pytest tests/integration/ \
+  --run-live \
   --triton-url http://localhost:8000 \
   --triton-metrics-url http://localhost:8002
 
@@ -44,12 +46,16 @@ docker run --rm \
 
 `tests/config/`는 Triton 서버가 없어도 실행됩니다. `tests/smoke/`와
 `tests/integration/`은 이미 기동 중인 Triton 서버가 필요합니다.
+두 live suite는 endpoint를 실수로 호출하지 않도록 기본 실행에서 skip되며 반드시
+`--run-live`를 지정해야 합니다.
 Smoke test는 Repository Index API에서 ready 모델이 최소 하나 확인되어야 통과합니다.
 서버 health endpoint만 200이고 모델이 하나도 로드되지 않은 상태는 배포 성공으로 보지 않습니다.
 
 Integration suite의 `test_text_classifier.py`는 기본 manifest의 필수 E2E gate입니다. 모델
 readiness, BYTES input, label/confidence output 계약을 실제 inference로 확인하며 실패를 skip하지
-않습니다. LLM/vision처럼 manifest에서 기본 비활성인 선택 모델은 로드되지 않았을 때만
+않습니다. `test_cache.py`도 같은 필수 모델에 고유 입력을 두 번 보내 miss와 hit counter가
+각각 증가하는지 강제하므로, model config 또는 server `--cache-config`가 빠지면 staging을
+실패시킵니다. LLM/vision처럼 manifest에서 기본 비활성인 선택 모델은 로드되지 않았을 때만
 skip하고, 일단 ready인 모델의 연결·설정·inference 오류는 배포 실패로 처리합니다.
 
 성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,

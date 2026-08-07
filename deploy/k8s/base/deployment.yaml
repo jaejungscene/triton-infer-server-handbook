@@ -34,11 +34,11 @@ spec:
         - name: triton
           image: triton-server:local
           args:
-            - "tritonserver"
             - "--model-repository=/models"
             - "--strict-model-config=true"
             - "--allow-metrics=true"
             - "--allow-gpu-metrics=true"
+            - "--cache-config=local,size=33554432"
           ports:
             - name: http
               containerPort: 8000

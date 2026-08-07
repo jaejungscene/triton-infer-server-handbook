@@ -36,7 +36,11 @@ configs/
 | 설정 | dev | staging | prod |
 |------|-----|---------|------|
 | `model-control-mode` | poll (자동 감지) | explicit | explicit |
-| `response-cache` | off | on (local) | on (local, redis는 별도 플러그인 검증 후) |
+| `response-cache` | on (local 16 MiB) | on (local 32 MiB) | on (local 64 MiB, redis는 별도 플러그인 검증 후) |
 | `rate-limit` | off | off | on |
-| `tls` | off | off | on |
-| `tracing` | triton native (파일) | otel (collector) | otel (collector) |
+| `tls` | off | gateway/mesh에서 선택 | Kustomize Ingress termination, direct TLS는 opt-in |
+| `tracing` | opt-in | collector 준비 후 opt-in | collector 준비 후 opt-in |
+
+TLS와 tracing 행은 권장 운영 방향이며 현재 Compose/Helm/Kustomize가 `configs/` 파일을 자동으로
+읽는다는 뜻이 아닙니다. 해당 인수, 인증서 mount, collector 또는 gateway 리소스를 실제 배포
+manifest에 반영한 뒤 staging에서 연결을 검증해야 합니다.

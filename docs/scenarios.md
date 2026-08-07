@@ -19,7 +19,7 @@
 확인:
 
 - `./scripts/validate.sh`
-- `docker compose -f deploy/docker/docker-compose.yml up -d`
+- `docker compose --env-file .env.dev -f deploy/docker/docker-compose.yml up -d`
 - `./scripts/health_check.sh`
 - `python client/stats_client.py --model <model_name>`
 
@@ -128,8 +128,8 @@ staging 검증이 끝난 새 모델 revision을 production에 반영합니다.
 
 작업:
 
-1. model artifact revision과 container image tag를 고정합니다. `latest`나 mutable tag는 사용하지 않습니다.
-2. Helm values 또는 Kustomize overlay에 image tag를 반영합니다.
+1. model artifact revision과 container image digest를 고정합니다. `latest`나 mutable tag는 사용하지 않습니다.
+2. GitHub workflow에는 main commit SHA를 입력하고 실제 Deployment가 해석된 digest를 쓰는지 확인합니다.
 3. production은 `explicit` 모드로 기동합니다.
 4. 배포 직후 smoke test와 metrics 확인을 수행합니다.
 5. 문제가 있으면 Helm rollback 또는 이전 model repository revision으로 되돌립니다.
@@ -138,10 +138,13 @@ staging 검증이 끝난 새 모델 revision을 production에 반영합니다.
 
 - `/v2/health/live`
 - `/v2/health/ready`
-- `/v2/models`
+- `POST /v2/repository/index`의 ready model 목록
 - `/v2/models/{name}/stats`
 - Prometheus alert 상태
 
 주의:
 production에서 repository를 직접 덮어쓰는 방식은 피합니다. artifact를 immutable하게 만들고,
-배포 단위가 정확히 어떤 모델/이미지 조합인지 추적 가능해야 합니다.
+배포 단위가 정확히 어떤 모델/이미지 조합인지 추적 가능해야 합니다. 외부 Ingress에서는
+repository API가 차단되므로 ready model 확인과 load/unload는 내부 운영 endpoint를 사용합니다.
+장애가 나면 [Production 장애 대응 Runbook](runbook.md)의 full release rollback과 긴급
+Deployment rollback 차이를 먼저 확인합니다.

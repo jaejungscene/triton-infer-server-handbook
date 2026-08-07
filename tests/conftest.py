@@ -5,6 +5,7 @@ Triton 서버 URL, 공용 클라이언트 인스턴스 등을 제공합니다.
 """
 
 import os
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import pytest
@@ -29,6 +30,33 @@ def pytest_addoption(parser):
         default=os.getenv("TRITON_METRICS_URL"),
         help="Triton Prometheus metrics endpoint URL",
     )
+    parser.addoption(
+        "--run-live",
+        action="store_true",
+        default=False,
+        help="Run smoke/integration tests against a live Triton server",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    tests_root = Path(__file__).resolve().parent
+    run_live = config.getoption("--run-live")
+
+    for item in items:
+        try:
+            suite = Path(item.path).resolve().relative_to(tests_root).parts[0]
+        except (ValueError, IndexError):
+            continue
+        if suite not in {"smoke", "integration"}:
+            continue
+
+        item.add_marker(getattr(pytest.mark, suite))
+        if not run_live:
+            item.add_marker(
+                pytest.mark.skip(
+                    reason=f"{suite} test requires --run-live and a Triton endpoint"
+                )
+            )
 
 
 def _derive_metrics_url(http_url):

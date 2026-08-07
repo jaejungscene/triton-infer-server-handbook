@@ -11,7 +11,23 @@ spec:
     - host: triton.example.com
       http:
         paths:
-          - path: /
+          # 외부에는 추론 surface만 공개한다. repository/trace/shared-memory
+          # 제어 API는 cluster-internal operator endpoint로 분리한다.
+          - path: /v2
+            pathType: Exact
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: http
+          - path: /v2/health
+            pathType: Prefix
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: http
+          - path: /v2/models
             pathType: Prefix
             backend:
               service:

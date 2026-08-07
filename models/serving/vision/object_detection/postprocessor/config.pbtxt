@@ -11,9 +11,9 @@ input [
     dims: [-1, 7]
   },
   {
-    name: "SCALE_FACTOR"
+    name: "IMAGE_METADATA"
     data_type: TYPE_FP32
-    dims: [2]
+    dims: [5]
   }
 ]
 
@@ -21,17 +21,22 @@ output [
   {
     name: "BBOXES"
     data_type: TYPE_FP32
-    dims: [-1, 4]
+    dims: [100, 4]
   },
   {
     name: "SCORES"
     data_type: TYPE_FP32
-    dims: [-1]
+    dims: [100]
   },
   {
     name: "CLASS_IDS"
     data_type: TYPE_INT32
-    dims: [-1]
+    dims: [100]
+  },
+  {
+    name: "NUM_DETECTIONS"
+    data_type: TYPE_INT32
+    dims: [1]
   }
 ]
 
@@ -41,3 +46,7 @@ dynamic_batching {
 }
 
 instance_group [{ count: 1, kind: KIND_CPU }]
+
+parameters: { key: "confidence_threshold" value: { string_value: "0.5" } }
+parameters: { key: "nms_threshold" value: { string_value: "0.45" } }
+parameters: { key: "max_detections" value: { string_value: "100" } }

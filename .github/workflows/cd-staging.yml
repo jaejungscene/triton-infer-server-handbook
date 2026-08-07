@@ -8,6 +8,7 @@ name: CD - Staging
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: deploy-staging
@@ -30,6 +31,7 @@ jobs:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      KUBE_CONTEXT_STAGING: ${{ vars.KUBE_CONTEXT_STAGING }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -44,6 +46,27 @@ jobs:
       - name: Setup kustomize
         uses: imranismail/setup-kustomize@2ba527d4d055ab63514ba50a99456fc35684947f # v2
 
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve immutable image digest
+        run: |
+          DIGEST="$(docker buildx imagetools inspect "${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Could not resolve an immutable digest for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          echo "IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "${GITHUB_ENV}"
+        env:
+          RELEASE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.workflow_run.head_sha }}
+
       - name: Setup kubectl
         uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
 
@@ -52,13 +75,19 @@ jobs:
           mkdir -p ~/.kube
           umask 077
           printf '%s' "${KUBE_CONFIG_STAGING}" | base64 -d > ~/.kube/config
+          if [[ -z "${KUBE_CONTEXT_STAGING}" ]]; then
+            echo "KUBE_CONTEXT_STAGING environment variable is required" >&2
+            exit 1
+          fi
+          kubectl config use-context "${KUBE_CONTEXT_STAGING}"
+          test "$(kubectl config current-context)" = "${KUBE_CONTEXT_STAGING}"
         env:
           KUBE_CONFIG_STAGING: ${{ secrets.KUBE_CONFIG_STAGING }}
 
       - name: Update image tag
         run: |
           cd deploy/k8s/overlays/staging
-          kustomize edit set image triton-server=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.workflow_run.head_sha }}
+          kustomize edit set image "triton-server=${IMAGE_REF}"
 
       - name: Deploy to staging
         run: |
@@ -78,7 +107,7 @@ jobs:
 
           for i in $(seq 1 30); do
             if curl -sf "http://localhost:8000/v2/health/ready" > /dev/null 2>&1; then
-              pytest tests/integration/ --triton-url "http://localhost:8000" -v
+              pytest tests/integration/ --run-live --triton-url "http://localhost:8000" -v
               exit 0
             fi
             echo "Waiting for port-forwarded Triton... (${i}/30)"

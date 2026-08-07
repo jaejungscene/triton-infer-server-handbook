@@ -137,6 +137,36 @@ class TestManifest:
             assert "source" in model, f"Model {i} missing 'source' field"
             assert "target" in model, f"Model {i} missing 'target' field"
 
+    def test_manifest_targets_match_triton_model_names(self, serving_dir):
+        """manifest target과 config.pbtxt name은 동일해야 repository load가 성공함"""
+        manifest_path = os.path.join(serving_dir, "manifest.yaml")
+        with open(manifest_path) as f:
+            manifest = yaml.safe_load(f)
+
+        for model in manifest.get("models", []):
+            config_path = os.path.join(serving_dir, model["source"], "config.pbtxt")
+            with open(config_path) as config_file:
+                config = config_file.read()
+            match = re.search(r'^\s*name\s*:\s*"([A-Za-z0-9._-]+)"', config, re.MULTILINE)
+            assert match, f"Configured model name not found: {config_path}"
+            assert match.group(1) == model["target"], (
+                f"Manifest target {model['target']} does not match "
+                f"config name {match.group(1)}"
+            )
+
+    def test_manifest_environments_are_supported(self, serving_dir):
+        manifest_path = os.path.join(serving_dir, "manifest.yaml")
+        with open(manifest_path) as f:
+            manifest = yaml.safe_load(f)
+
+        supported = {"dev", "staging", "prod"}
+        for model in manifest.get("models", []):
+            environments = model.get("environments", supported)
+            assert environments, f"Empty environments for {model['target']}"
+            assert set(environments).issubset(supported), (
+                f"Unsupported environments for {model['target']}: {environments}"
+            )
+
     def test_enabled_manifest_models_have_runtime_payload(self, serving_dir):
         """enabled 모델은 Triton이 로드할 수 있는 런타임 payload를 포함해야 함"""
         manifest_path = os.path.join(serving_dir, "manifest.yaml")
@@ -170,6 +200,17 @@ class TestManifest:
                 for candidate in payload_candidates
             ), f"Enabled model {model['target']} has no runtime payload"
 
+    def test_string_warmup_uses_generated_data(self, serving_dir):
+        config_path = os.path.join(
+            serving_dir, "nlp", "text_classifier", "config.pbtxt"
+        )
+        with open(config_path) as config_file:
+            config = config_file.read()
+
+        assert "model_warmup" in config
+        assert "zero_data: true" in config
+        assert "input_data_file" not in config
+
 
 @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
 class TestDeploymentRuntimeArgs:
@@ -179,7 +220,7 @@ class TestDeploymentRuntimeArgs:
         with open(path) as f:
             return yaml.safe_load(f)
 
-    def test_helm_values_start_with_tritonserver(self, project_root):
+    def test_helm_values_only_contain_entrypoint_arguments(self, project_root):
         values_dir = os.path.join(project_root, "deploy", "helm", "triton")
         for filename in (
             "values.yaml",
@@ -191,12 +232,16 @@ class TestDeploymentRuntimeArgs:
             args = values.get("tritonArgs", [])
 
             assert args, f"{filename} has no tritonArgs"
-            assert args[0] == "tritonserver", \
-                f"{filename} must keep tritonserver as the first Kubernetes arg"
+            assert args[0].startswith("--"), \
+                f"{filename} must contain flags for the image entrypoint"
+            assert "tritonserver" not in args, \
+                f"{filename} must not repeat the image entrypoint"
             assert "--model-repository=/models" in args, \
                 f"{filename} must set the model repository"
             assert "--allow-metrics=true" in args, \
                 f"{filename} must expose Prometheus metrics"
+            assert any(arg.startswith("--cache-config=") for arg in args), \
+                f"{filename} must configure the enabled model response cache"
             if "--model-control-mode=explicit" in args:
                 assert "--load-model=*" in args, \
                     f"{filename} explicit mode must bootstrap the validated model set"
@@ -231,10 +276,14 @@ class TestDeploymentRuntimeArgs:
             patch = self._load_yaml(patch_path)
             args = patch["spec"]["template"]["spec"]["containers"][0]["args"]
 
-            assert args[0] == "tritonserver", \
-                f"{overlay} overlay must keep tritonserver as the first arg"
+            assert args[0].startswith("--"), \
+                f"{overlay} overlay must contain flags for the image entrypoint"
+            assert "tritonserver" not in args, \
+                f"{overlay} overlay must not repeat the image entrypoint"
             assert "--model-repository=/models" in args, \
                 f"{overlay} overlay must set the model repository"
+            assert any(arg.startswith("--cache-config=") for arg in args), \
+                f"{overlay} must configure the enabled model response cache"
             assert expected_args.issubset(set(args)), \
                 f"{overlay} overlay missing expected args: {expected_args - set(args)}"
 
@@ -253,6 +302,61 @@ class TestDeploymentRuntimeArgs:
             assert policy["spec"]["policyTypes"] == ["Ingress"]
             assert policy["spec"]["podSelector"]["matchLabels"]["app"] == \
                 "triton-server"
+
+        prod_policy = self._load_yaml(
+            os.path.join(overlays_dir, "prod", "network_policy.yaml")
+        )
+        assert not any(
+            source == {"podSelector": {}}
+            for rule in prod_policy["spec"]["ingress"]
+            for source in rule.get("from", [])
+        ), "production must not trust every pod in its namespace"
+
+    def test_production_has_hpa_and_pdb(self, project_root):
+        prod_dir = os.path.join(project_root, "deploy", "k8s", "overlays", "prod")
+        kustomization = self._load_yaml(os.path.join(prod_dir, "kustomization.yaml"))
+        resources = set(kustomization["resources"])
+
+        assert {"hpa.yaml", "pdb.yaml"}.issubset(resources)
+        hpa = self._load_yaml(os.path.join(prod_dir, "hpa.yaml"))
+        assert hpa["spec"]["minReplicas"] >= 3
+        assert hpa["spec"]["behavior"]["scaleDown"][
+            "stabilizationWindowSeconds"
+        ] >= 300
+        assert hpa["spec"]["metrics"][0]["resource"]["name"] == "cpu"
+
+        pdb = self._load_yaml(os.path.join(prod_dir, "pdb.yaml"))
+        assert pdb["spec"]["minAvailable"] >= 2
+
+        helm_prod = self._load_yaml(
+            os.path.join(
+                project_root, "deploy", "helm", "triton", "values.prod.yaml"
+            )
+        )
+        assert helm_prod["networkPolicy"]["allowSameNamespace"] is False
+        assert helm_prod["topologySpread"]["enabled"] is True
+        assert helm_prod["topologySpread"]["whenUnsatisfiable"] == \
+            "DoNotSchedule"
+
+        replica_patch = self._load_yaml(
+            os.path.join(prod_dir, "replica_patch.yaml")
+        )
+        constraints = replica_patch["spec"]["template"]["spec"][
+            "topologySpreadConstraints"
+        ]
+        assert constraints[0]["topologyKey"] == "kubernetes.io/hostname"
+        assert constraints[0]["whenUnsatisfiable"] == "DoNotSchedule"
+
+    def test_restricted_namespaces_enforce_pod_security_baseline(self, project_root):
+        overlays_dir = os.path.join(project_root, "deploy", "k8s", "overlays")
+        for environment in ("staging", "prod"):
+            namespace = self._load_yaml(
+                os.path.join(overlays_dir, environment, "namespace.yaml")
+            )
+            labels = namespace["metadata"]["labels"]
+            assert labels["pod-security.kubernetes.io/enforce"] == "baseline"
+            assert labels["pod-security.kubernetes.io/audit"] == "restricted"
+            assert labels["pod-security.kubernetes.io/warn"] == "restricted"
 
     def test_ingress_is_opt_in_and_production_is_authenticated(self, project_root):
         base_dir = os.path.join(project_root, "deploy", "k8s", "base")
@@ -295,6 +399,35 @@ class TestDeploymentRuntimeArgs:
         assert http_port == "http"
         assert grpc_port == "grpc"
 
+    def test_ingresses_expose_inference_api_only(self, project_root):
+        ingress_dir = os.path.join(project_root, "deploy", "k8s", "ingress")
+        http_ingress = self._load_yaml(
+            os.path.join(ingress_dir, "ingress-http.yaml")
+        )
+        grpc_ingress = self._load_yaml(
+            os.path.join(ingress_dir, "ingress-grpc.yaml")
+        )
+
+        http_paths = {
+            (path["path"], path["pathType"])
+            for path in http_ingress["spec"]["rules"][0]["http"]["paths"]
+        }
+        assert http_paths == {
+            ("/v2", "Exact"),
+            ("/v2/health", "Prefix"),
+            ("/v2/models", "Prefix"),
+        }
+
+        grpc_paths = grpc_ingress["spec"]["rules"][0]["http"]["paths"]
+        assert all(path["pathType"] == "Exact" for path in grpc_paths)
+        assert all("Repository" not in path["path"] for path in grpc_paths)
+        assert all("SharedMemory" not in path["path"] for path in grpc_paths)
+        assert {path["path"].rsplit("/", 1)[-1] for path in grpc_paths} >= {
+            "ModelInfer",
+            "ModelStreamInfer",
+            "ServerReady",
+        }
+
     def test_deployments_define_safe_rollout_and_startup(self, project_root):
         base_deployment = self._load_yaml(
             os.path.join(project_root, "deploy", "k8s", "base", "deployment.yaml")
@@ -315,6 +448,41 @@ class TestDeploymentRuntimeArgs:
         assert helm_values["updateStrategy"]["rollingUpdate"]["maxUnavailable"] == 0
         assert helm_values["automountServiceAccountToken"] is False
         assert helm_values["startupProbe"]["failureThreshold"] >= 30
+
+    def test_production_compose_uses_release_image_contract(self, project_root):
+        compose = self._load_yaml(
+            os.path.join(
+                project_root, "deploy", "docker", "docker-compose.prod.yml"
+            )
+        )
+        triton = compose["services"]["triton"]
+
+        assert triton["image"].startswith("${TRITON_IMAGE:?")
+        assert "volumes" not in triton, \
+            "production must use the model repository embedded in the release image"
+        assert triton["command"][0].startswith("--")
+        assert "tritonserver" not in triton["command"]
+        assert triton["pull_policy"] == "always"
+
+    def test_development_compose_environment_controls_are_effective(self, project_root):
+        compose = self._load_yaml(
+            os.path.join(project_root, "deploy", "docker", "docker-compose.yml")
+        )
+        triton = compose["services"]["triton"]
+
+        assert triton["image"].startswith("${TRITON_DEV_IMAGE:-")
+        assert all("${HOST_BIND_ADDRESS:-" in port for port in triton["ports"])
+        assert "${MODEL_REPOSITORY_PATH:-" in triton["volumes"][0]
+        assert any("${CACHE_SIZE:-" in arg for arg in triton["command"].split())
+
+    def test_readme_does_not_claim_perf_runs_during_production_deploy(
+        self, project_root
+    ):
+        with open(os.path.join(project_root, "README.md")) as readme_file:
+            readme = readme_file.read()
+
+        assert "prod 배포 + perf baseline 비교" not in readme
+        assert "perf-benchmark.yml" in readme
 
 
 class TestReleaseWorkflow:
@@ -349,6 +517,112 @@ class TestReleaseWorkflow:
         ):
             assert command in workflow, f"PR CI does not run {command}"
         assert "- 'monitoring/**'" in workflow
+
+    def test_pr_ci_runs_offline_unit_suites(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-validate.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "name: Unit Tests" in workflow
+        assert "pytest tests/client/ tests/scripts/ tests/perf/" in workflow
+
+    def test_deployment_workflows_explicitly_enable_live_tests(self, project_root):
+        workflow_expectations = {
+            "ci-build-test.yml": "pytest tests/smoke/ --run-live",
+            "cd-staging.yml": "pytest tests/integration/ --run-live",
+            "cd-production.yml": "pytest tests/smoke/ --run-live",
+        }
+        for filename, command in workflow_expectations.items():
+            path = os.path.join(project_root, ".github", "workflows", filename)
+            with open(path) as workflow_file:
+                assert command in workflow_file.read()
+
+    def test_main_build_tests_the_published_digest(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-build-test.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "- 'client/**'" in workflow
+        assert "- 'tests/**'" in workflow
+        assert "--cache-config=local,size=16777216" in workflow
+        assert "id: build" in workflow
+        assert "push: true" in workflow
+        assert "${{ env.IMAGE_NAME }}:${{ github.sha }}" in workflow
+        assert "@${{ steps.build.outputs.digest }}" in workflow
+        assert workflow.count("uses: docker/build-push-action@") == 1
+
+    def test_deploy_workflows_pin_the_resolved_digest(self, project_root):
+        for filename in ("cd-staging.yml", "cd-production.yml"):
+            path = os.path.join(project_root, ".github", "workflows", filename)
+            with open(path) as workflow_file:
+                workflow = workflow_file.read()
+
+            assert "docker buildx imagetools inspect" in workflow
+            assert "^sha256:[0-9a-f]{64}$" in workflow
+            assert 'IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}' in workflow
+            assert 'kustomize edit set image "triton-server=${IMAGE_REF}"' in workflow
+
+    def test_perf_benchmark_uses_release_runtime_contract(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "perf-benchmark.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "./scripts/build.sh --env prod --clean" in workflow
+        assert "--file deploy/docker/Dockerfile" in workflow
+        assert "--tag triton-server:perf" in workflow
+        assert "--cache-config=local,size=67108864" in workflow
+        assert "-v $(pwd)/model_repository:/models:ro" not in workflow
+
+    def test_deploy_workflows_verify_kube_context(self, project_root):
+        workflow_expectations = {
+            "cd-staging.yml": "KUBE_CONTEXT_STAGING",
+            "cd-production.yml": "KUBE_CONTEXT_PROD",
+        }
+        for filename, variable in workflow_expectations.items():
+            path = os.path.join(project_root, ".github", "workflows", filename)
+            with open(path) as workflow_file:
+                workflow = workflow_file.read()
+
+            assert f"kubectl config use-context \"${{{variable}}}\"" in workflow
+            assert f"kubectl config current-context)\" = \"${{{variable}}}\"" in workflow
+
+    def test_composite_action_inputs_are_not_interpolated_in_shell(self, project_root):
+        action_path = os.path.join(
+            project_root, ".github", "actions", "triton-health-check", "action.yml"
+        )
+        with open(action_path) as action_file:
+            action = yaml.safe_load(action_file)
+
+        for step in action["runs"]["steps"]:
+            assert "${{ inputs." not in step.get("run", ""), \
+                "action inputs must flow through env before reaching shell"
+
+    def test_requirement_versions_are_exactly_pinned(self, project_root):
+        for filename in (
+            "requirements-dev.txt",
+            "requirements-integration.txt",
+            "requirements-model.txt",
+            "requirements-converter.txt",
+        ):
+            path = os.path.join(project_root, filename)
+            with open(path) as requirements_file:
+                requirements = [
+                    line.strip()
+                    for line in requirements_file
+                    if line.strip() and not line.lstrip().startswith("#")
+                ]
+
+            for requirement in requirements:
+                if requirement.startswith("-r "):
+                    continue
+                assert re.match(r"^[A-Za-z0-9_.-]+(?:\[[^]]+\])?==[^=]+$", requirement), \
+                    f"{filename}: dependency must be exactly pinned: {requirement}"
 
     @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
     def test_external_actions_are_pinned_to_commit_sha(self, project_root):

@@ -1,53 +1,88 @@
-"""
-test_cache.py — Response Cache 통합 테스트
+"""Required response-cache contract for the active text classifier."""
 
-동일 입력에 대해 캐시가 작동하는지 검증합니다.
-"""
+import re
+import uuid
 
 import numpy as np
 import pytest
 import requests
 
 
-class TestResponseCache:
-    """Response Cache 동작 검증"""
+def _model_metric_value(metrics: str, metric_name: str, model_name: str) -> float:
+    total = 0.0
+    matched = False
+    model_label = re.compile(rf'(?:^|,)model="{re.escape(model_name)}"(?:,|$)')
+    prefix = f"{metric_name}{{"
+    for line in metrics.splitlines():
+        if not line.startswith(prefix):
+            continue
+        labels, separator, sample = line[len(prefix) :].partition("}")
+        if not separator or model_label.search(labels) is None:
+            continue
+        total += float(sample.strip().split()[0])
+        matched = True
+    if not matched:
+        raise AssertionError(f"Missing {metric_name} for model={model_name}")
+    return total
 
-    def test_cache_enabled_model(self, triton_url):
-        """캐시가 활성화된 모델의 반복 요청 성능 확인"""
-        try:
-            import tritonclient.http as httpclient
-        except ImportError:
-            pytest.skip("tritonclient not installed")
 
-        client = httpclient.InferenceServerClient(url=triton_url.replace("http://", ""))
+def _read_cache_counters(metrics_url: str, model_name: str) -> tuple[float, float]:
+    response = requests.get(f"{metrics_url.rstrip('/')}/metrics", timeout=10)
+    response.raise_for_status()
+    return (
+        _model_metric_value(
+            response.text, "nv_cache_num_hits_per_model", model_name
+        ),
+        _model_metric_value(
+            response.text, "nv_cache_num_misses_per_model", model_name
+        ),
+    )
 
-        if not client.is_model_ready("resnet50"):
-            pytest.skip("resnet50 model not loaded")
 
-        # 동일한 입력으로 2번 요청
-        input_data = np.random.randn(1, 3, 224, 224).astype(np.float32)
-        input_tensor = httpclient.InferInput("input", list(input_data.shape), "FP32")
-        input_tensor.set_data_from_numpy(input_data)
-        outputs = [httpclient.InferRequestedOutput("output")]
+def test_required_model_records_cache_miss_then_hit(triton_url, triton_metrics_url):
+    try:
+        import tritonclient.http as httpclient
+    except ImportError:
+        pytest.fail("tritonclient is required: install requirements-integration.txt")
 
-        # 첫 번째 요청 (miss)
-        result1 = client.infer("resnet50", [input_tensor], outputs)
-        output1 = result1.as_numpy("output")
+    model_name = "text_classifier"
+    ssl_enabled = triton_url.startswith("https://")
+    server_url = triton_url.split("://", 1)[-1].rstrip("/")
+    client = httpclient.InferenceServerClient(
+        url=server_url,
+        connection_timeout=10,
+        network_timeout=10,
+        ssl=ssl_enabled,
+    )
+    try:
+        assert client.is_model_ready(model_name), f"required model {model_name} is not ready"
+        hits_before, misses_before = _read_cache_counters(
+            triton_metrics_url, model_name
+        )
 
-        # 두 번째 요청 (hit 예상)
-        result2 = client.infer("resnet50", [input_tensor], outputs)
-        output2 = result2.as_numpy("output")
+        unique_text = np.array([[f"cache-contract-{uuid.uuid4().hex}"]], dtype=object)
+        input_tensor = httpclient.InferInput(
+            "INPUT_TEXT", list(unique_text.shape), "BYTES"
+        )
+        input_tensor.set_data_from_numpy(unique_text)
+        outputs = [
+            httpclient.InferRequestedOutput("LABEL"),
+            httpclient.InferRequestedOutput("CONFIDENCE"),
+        ]
 
-        # 결과가 동일해야 함
-        np.testing.assert_array_equal(output1, output2)
+        first = client.infer(model_name, [input_tensor], outputs)
+        second = client.infer(model_name, [input_tensor], outputs)
 
-    def test_cache_metrics(self, triton_metrics_url):
-        """캐시 메트릭이 Prometheus에 노출되는지 확인"""
-        response = requests.get(f"{triton_metrics_url}/metrics", timeout=10)
-        response.raise_for_status()
-
-        # 캐시 메트릭이 존재하면 캐시가 활성화된 것
-        has_cache_metrics = "nv_cache" in response.text
-        # 캐시가 비활성화일 수 있으므로 경고만
-        if not has_cache_metrics:
-            pytest.skip("Cache metrics not found (cache may be disabled)")
+        np.testing.assert_array_equal(
+            first.as_numpy("LABEL"), second.as_numpy("LABEL")
+        )
+        np.testing.assert_array_equal(
+            first.as_numpy("CONFIDENCE"), second.as_numpy("CONFIDENCE")
+        )
+        hits_after, misses_after = _read_cache_counters(
+            triton_metrics_url, model_name
+        )
+        assert hits_after >= hits_before + 1
+        assert misses_after >= misses_before + 1
+    finally:
+        client.close()

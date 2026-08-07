@@ -35,6 +35,7 @@ class TestVisionPipeline:
             httpclient.InferRequestedOutput("BBOXES"),
             httpclient.InferRequestedOutput("SCORES"),
             httpclient.InferRequestedOutput("CLASS_IDS"),
+            httpclient.InferRequestedOutput("NUM_DETECTIONS"),
         ]
 
         result = client.infer("od_pipeline", [input_tensor], outputs)
@@ -42,11 +43,13 @@ class TestVisionPipeline:
         bboxes = result.as_numpy("BBOXES")
         scores = result.as_numpy("SCORES")
         class_ids = result.as_numpy("CLASS_IDS")
+        counts = result.as_numpy("NUM_DETECTIONS")
 
-        assert bboxes.ndim == 2
-        assert scores.ndim == 1
-        assert class_ids.ndim == 1
-        assert len(scores) == len(class_ids)
+        assert bboxes.shape == (1, 100, 4)
+        assert scores.shape == (1, 100)
+        assert class_ids.shape == (1, 100)
+        assert counts.shape == (1, 1)
+        assert 0 <= counts[0, 0] <= 100
 
     def test_preprocessor_standalone(self, triton_url, sample_image):
         """전처리 모델 단독 테스트"""
@@ -69,3 +72,4 @@ class TestVisionPipeline:
         preprocessed = result.as_numpy("PREPROCESSED_IMAGE")
 
         assert preprocessed.dtype == np.float32
+        assert preprocessed.shape == (1, 3, 640, 640)

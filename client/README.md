@@ -53,6 +53,20 @@ idle timeout에 공통 적용됩니다. timeout이나 오류가 발생하면 해
 stream은 취소합니다. 한 streaming client instance에서는 stream을 직렬화하므로 높은
 동시성이 필요하면 worker별 client를 생성합니다.
 
+`TritonAsyncClient`는 executor wrapper가 아니라 `tritonclient.grpc.aio` transport를 사용하므로
+task 취소가 진행 중인 RPC에 전달됩니다. 한 event loop 안에서 사용하고 `async with` 또는
+`await client.close()`로 channel을 닫습니다. Triton 24.08의 AsyncIO API는 beta이므로 client
+버전을 서버와 함께 고정하고 staging 부하 테스트를 통과한 뒤 적용합니다.
+
+```python
+async with TritonAsyncClient(config) as client:
+    outputs = await client.infer_numpy(
+        "text_classifier",
+        {"INPUT_TEXT": np.array([["hello"]], dtype=object)},
+        ["LABEL", "CONFIDENCE"],
+    )
+```
+
 ```python
 config = TritonConfig(
     ssl=True,
@@ -66,8 +80,22 @@ config = TritonConfig(
 
 `ssl_cert`와 `ssl_key`는 반드시 함께 설정합니다. HTTP와 gRPC 모두 CA 검증을 기본으로 하며,
 인증 header는 health/model/inference 요청과 stream handshake에 전달됩니다. production에서는
-token을 코드나 저장소에 넣지 말고 secret manager에서 주입합니다.
+token을 코드나 저장소에 넣지 말고 secret manager에서 주입합니다. `url`과 `grpc_url`은
+scheme이나 path 없이 `host:port`로 지정합니다. TLS 파일을 설정하면서 `ssl=False`이면 조용히
+평문 통신하지 않고 설정 오류로 실패합니다.
 
 Shared-memory client는 요청마다 충돌하지 않는 region 이름을 만들고 inference 종료 시 즉시
 해제합니다. 반환 NumPy 배열은 region 해제 전에 복사되므로 client 수명과 독립적입니다.
 출력 shape/dtype은 실제 모델 계약과 정확히 일치해야 하며 빈 tensor는 허용하지 않습니다.
+
+Statistics API CLI는 10초 timeout을 기본 적용하고 HTTPS 인증서 검증을 유지합니다. 인증이
+필요하면 token을 명령행 인수로 노출하지 말고 환경변수로 전달합니다. `inference_count`는 요청
+수가 아니라 batch 원소를 포함한 inference 수이므로 `execution_count`로 나눈 값이 평균 동적
+batch 크기입니다.
+
+```bash
+export TRITON_AUTH_TOKEN='<load from secret manager>'
+python client/stats_client.py \
+  --url https://triton.example.com --model text_classifier --timeout 5
+unset TRITON_AUTH_TOKEN
+```

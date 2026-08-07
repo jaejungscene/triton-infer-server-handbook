@@ -27,20 +27,27 @@ Prometheus rule, shell 문법을 검사합니다. 제출 전 최소 검증은 �
 
 ```bash
 ./scripts/validate.sh
-pytest tests/config/ tests/scripts/ tests/client/
+pytest tests/
 ruff check models/ client/ tests/ --select E,W,F --ignore E501
 helm lint deploy/helm/triton -f deploy/helm/triton/values.prod.yaml
 kustomize build deploy/k8s/overlays/prod >/dev/null
 promtool check config monitoring/prometheus/scrape_config.yml
 promtool check rules monitoring/prometheus/triton_rules.yml
-GRAFANA_ADMIN_PASSWORD=local docker compose \
+TRITON_IMAGE=triton-server:validation GRAFANA_ADMIN_PASSWORD=local docker compose \
   -f deploy/docker/docker-compose.prod.yml config --quiet
 ```
+
+`pytest tests/`는 서버가 필요 없는 suite를 실행하고 smoke/integration은 skip합니다. 로컬
+Triton에 실제 요청을 보내려면 대상 디렉터리와 `--run-live`를 함께 지정합니다.
 
 GitHub Actions의 외부 `uses:`는 release tag가 아니라 40자리 commit SHA로 고정합니다. 사람이
 버전을 알아볼 수 있도록 같은 줄에 `# v4`처럼 tag를 주석으로 남기고, 버전 갱신 PR에서는
 upstream release note와 새 SHA를 함께 검토합니다. repository 내부 composite action은
 `./.github/actions/...` 상대 경로를 사용합니다.
+
+`requirements*.txt`의 실행 의존성은 범위가 아닌 `==` 버전으로 고정합니다. 버전 갱신은
+관련 패키지를 한 번에 무작정 올리지 않고 unit/config/smoke 결과와 converter image build를
+확인한 별도 PR로 수행합니다.
 
 ## 커밋 메시지
 

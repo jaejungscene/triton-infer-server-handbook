@@ -6,8 +6,10 @@
 #   - 여러 Triton 인스턴스가 캐시 공유
 #   - Triton 메모리와 캐시 메모리 분리
 #
-# 사전조건: Redis 서버 접속 가능해야 함
-# Redis 배포: docker compose -f deploy/docker/docker-compose.prod.yml --profile redis-cache up -d
+# 사전조건: Redis 서버와 Triton Redis cache plugin이 모두 준비되어야 함
+# Compose profile은 Redis dependency만 시작하며 Triton image/command를 자동 변경하지 않음
+# Redis 배포: docker compose --env-file .env.prod \
+#   -f deploy/docker/docker-compose.prod.yml --profile redis-cache up -d
 # =============================================================================
 
 --cache-config=redis,host=${REDIS_HOST:-redis}

@@ -7,57 +7,57 @@ groups:
       - alert: TritonHighLatency
         expr: |
           (
-            sum by (model, version) (rate(nv_inference_request_duration_us[5m]))
+            sum by (environment, model, version) (rate(nv_inference_request_duration_us[5m]))
             /
-            sum by (model, version) (rate(nv_inference_request_success[5m]))
+            sum by (environment, model, version) (rate(nv_inference_request_success[5m]))
           ) > 200000
-          and on (model, version)
-          sum by (model, version) (rate(nv_inference_request_success[5m])) > 0
+          and on (environment, model, version)
+          sum by (environment, model, version) (rate(nv_inference_request_success[5m])) >= 0.1
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "High inference latency on {{ $labels.model }}"
+          summary: "High inference latency on {{ $labels.environment }}/{{ $labels.model }}"
           description: "5m average latency is {{ $value }}us (threshold: 200ms)"
 
       # 추론 요청 에러율 > 5%
       - alert: TritonHighErrorRate
         expr: |
           (
-            sum by (model, version) (rate(nv_inference_request_failure[5m]))
+            sum by (environment, model, version) (rate(nv_inference_request_failure[5m]))
             /
-            sum by (model, version) (
+            sum by (environment, model, version) (
               rate(nv_inference_request_success[5m])
               + rate(nv_inference_request_failure[5m])
             )
           ) > 0.05
-          and on (model, version)
-          sum by (model, version) (
+          and on (environment, model, version)
+          sum by (environment, model, version) (
             rate(nv_inference_request_success[5m])
             + rate(nv_inference_request_failure[5m])
-          ) > 0
+          ) >= 0.1
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "High error rate on {{ $labels.model }}"
+          summary: "High error rate on {{ $labels.environment }}/{{ $labels.model }}"
           description: "Error rate is {{ $value | humanizePercentage }}"
 
       # 큐 대기 시간이 길어짐
       - alert: TritonQueueBacklog
         expr: |
           (
-            sum by (model, version) (rate(nv_inference_queue_duration_us[5m]))
+            sum by (environment, model, version) (rate(nv_inference_queue_duration_us[5m]))
             /
-            sum by (model, version) (rate(nv_inference_request_success[5m]))
+            sum by (environment, model, version) (rate(nv_inference_request_success[5m]))
           ) > 100000
-          and on (model, version)
-          sum by (model, version) (rate(nv_inference_request_success[5m])) > 0
+          and on (environment, model, version)
+          sum by (environment, model, version) (rate(nv_inference_request_success[5m])) >= 0.1
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Queue backlog on {{ $labels.model }}"
+          summary: "Queue backlog on {{ $labels.environment }}/{{ $labels.model }}"
           description: "Queue wait time is {{ $value }}us"
 
       # GPU 사용률 높음 (> 90%)
@@ -82,10 +82,20 @@ groups:
 
       # Triton 서버 다운
       - alert: TritonServerDown
-        expr: up{job="triton-inference-server"} == 0
+        expr: up{service="triton"} == 0
         for: 1m
         labels:
           severity: critical
         annotations:
           summary: "Triton server is down"
           description: "Triton inference server is unreachable"
+
+      # service discovery 실패 등으로 target 시계열 자체가 사라짐
+      - alert: TritonMetricsMissing
+        expr: absent_over_time(up{service="triton"}[5m])
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Triton metrics target is missing"
+          description: "No Triton scrape target has been discovered for at least 5 minutes"

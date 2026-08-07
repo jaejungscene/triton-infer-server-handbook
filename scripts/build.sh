@@ -64,7 +64,9 @@ fi
 
 echo "[build] Validating and staging models (env=${BUILD_ENV}, tags=${TAGS:-all})"
 
-"${python_bin}" - "${MANIFEST}" "${MODELS_SRC}" "${MODEL_REPO}" "${TAGS}" "${CLEAN}" <<'PYTHON_SCRIPT'
+"${python_bin}" - \
+    "${MANIFEST}" "${MODELS_SRC}" "${MODEL_REPO}" "${BUILD_ENV}" "${TAGS}" "${CLEAN}" \
+    <<'PYTHON_SCRIPT'
 from __future__ import annotations
 
 import os
@@ -87,9 +89,11 @@ except ImportError:
 manifest_path = Path(sys.argv[1]).resolve()
 models_src = Path(sys.argv[2]).resolve()
 model_repo = Path(sys.argv[3]).resolve()
-filter_tags = set(filter(None, sys.argv[4].split(",")))
-clean = sys.argv[5].lower() == "true"
+build_environment = sys.argv[4]
+filter_tags = set(filter(None, sys.argv[5].split(",")))
+clean = sys.argv[6].lower() == "true"
 safe_name = re.compile(r"^[A-Za-z0-9._-]+$")
+configured_name = re.compile(r'^\s*name\s*:\s*"([A-Za-z0-9._-]+)"', re.MULTILINE)
 
 
 def contained_path(base: Path, relative: str, field: str) -> Path:
@@ -126,6 +130,15 @@ for index, model in enumerate(manifest["models"]):
         raise SystemExit(f"[build] models[{index}].tags must be a string list")
     if not isinstance(model.get("enabled", True), bool):
         raise SystemExit(f"[build] models[{index}].enabled must be boolean")
+    environments = model.get("environments", ["dev", "staging", "prod"])
+    if (
+        not isinstance(environments, list)
+        or not environments
+        or not all(environment in {"dev", "staging", "prod"} for environment in environments)
+    ):
+        raise SystemExit(
+            f"[build] models[{index}].environments must contain dev, staging, or prod"
+        )
     required_files = model.get("required_files", [])
     if not isinstance(required_files, list) or not all(
         isinstance(required_file, str) for required_file in required_files
@@ -136,11 +149,27 @@ for index, model in enumerate(manifest["models"]):
     if not model.get("enabled", True):
         print(f"  SKIP (disabled): {source}")
         continue
+    if build_environment not in environments:
+        print(f"  SKIP (environment={build_environment}): {source}")
+        continue
     if filter_tags and not filter_tags.intersection(tags):
         print(f"  SKIP (tags): {source}")
         continue
     if not source_path.is_dir():
         raise SystemExit(f"[build] enabled model source not found: {source_path}")
+
+    config_path = source_path / "config.pbtxt"
+    if not config_path.is_file():
+        raise SystemExit(f"[build] enabled model {target} has no config.pbtxt")
+    config = config_path.read_text(encoding="utf-8")
+    name_match = configured_name.search(config)
+    if name_match is None:
+        raise SystemExit(f"[build] enabled model {target} has no configured name")
+    if name_match.group(1) != target:
+        raise SystemExit(
+            f"[build] manifest target {target} does not match config name "
+            f"{name_match.group(1)}"
+        )
 
     for required_file in required_files:
         required_path = contained_path(source_path, required_file, "required_files")

@@ -10,9 +10,10 @@ input [
 ]
 
 output [
-  { name: "BBOXES"       data_type: TYPE_FP32   dims: [-1, 4] },
-  { name: "SCORES"       data_type: TYPE_FP32   dims: [-1] },
-  { name: "CLASS_IDS"    data_type: TYPE_INT32   dims: [-1] }
+  { name: "BBOXES"          data_type: TYPE_FP32   dims: [100, 4] },
+  { name: "SCORES"          data_type: TYPE_FP32   dims: [100] },
+  { name: "CLASS_IDS"       data_type: TYPE_INT32   dims: [100] },
+  { name: "NUM_DETECTIONS"  data_type: TYPE_INT32   dims: [1] }
 ]
 
 ensemble_scheduling {
@@ -22,7 +23,7 @@ ensemble_scheduling {
       model_version: -1
       input_map  { key: "RAW_IMAGE"           value: "RAW_IMAGE" }
       output_map { key: "PREPROCESSED_IMAGE"  value: "PREPROCESSED_IMAGE" }
-      output_map { key: "SCALE_FACTOR"        value: "SCALE_FACTOR" }
+      output_map { key: "IMAGE_METADATA"      value: "IMAGE_METADATA" }
     },
     {
       model_name: "yolox"
@@ -34,10 +35,11 @@ ensemble_scheduling {
       model_name: "od_postprocessor"
       model_version: -1
       input_map  { key: "DETECTIONS"          value: "DETECTIONS" }
-      input_map  { key: "SCALE_FACTOR"        value: "SCALE_FACTOR" }
+      input_map  { key: "IMAGE_METADATA"      value: "IMAGE_METADATA" }
       output_map { key: "BBOXES"              value: "BBOXES" }
       output_map { key: "SCORES"              value: "SCORES" }
       output_map { key: "CLASS_IDS"           value: "CLASS_IDS" }
+      output_map { key: "NUM_DETECTIONS"      value: "NUM_DETECTIONS" }
     }
   ]
 }

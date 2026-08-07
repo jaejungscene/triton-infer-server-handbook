@@ -24,6 +24,7 @@ env:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: deploy-production
@@ -37,6 +38,7 @@ jobs:
     environment: production  # ★ 수동 승인 필수 (GitHub Settings → Environments)
     env:
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      KUBE_CONTEXT_PROD: ${{ vars.KUBE_CONTEXT_PROD }}
     steps:
       - name: Validate image tag
         if: ${{ github.event.inputs.rollback != 'true' }}
@@ -78,6 +80,30 @@ jobs:
       - name: Setup kustomize
         uses: imranismail/setup-kustomize@2ba527d4d055ab63514ba50a99456fc35684947f # v2
 
+      - name: Setup Docker Buildx
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to GHCR
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve immutable image digest
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        run: |
+          DIGEST="$(docker buildx imagetools inspect "${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Could not resolve an immutable digest for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          echo "IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "${GITHUB_ENV}"
+        env:
+          RELEASE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag }}
+
       - name: Setup kubectl
         uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
 
@@ -86,6 +112,12 @@ jobs:
           mkdir -p ~/.kube
           umask 077
           printf '%s' "${KUBE_CONFIG_PROD}" | base64 -d > ~/.kube/config
+          if [[ -z "${KUBE_CONTEXT_PROD}" ]]; then
+            echo "KUBE_CONTEXT_PROD environment variable is required" >&2
+            exit 1
+          fi
+          kubectl config use-context "${KUBE_CONTEXT_PROD}"
+          test "$(kubectl config current-context)" = "${KUBE_CONTEXT_PROD}"
         env:
           KUBE_CONFIG_PROD: ${{ secrets.KUBE_CONFIG_PROD }}
 
@@ -103,16 +135,14 @@ jobs:
         id: deploy
         if: ${{ github.event.inputs.rollback != 'true' }}
         run: |
-          echo "Deploying image tag: ${IMAGE_TAG}"
+          echo "Deploying immutable image: ${IMAGE_REF}"
 
           cd deploy/k8s/overlays/prod
-          kustomize edit set image triton-server=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
+          kustomize edit set image "triton-server=${IMAGE_REF}"
 
           kustomize build . | kubectl apply -f -
           echo "applied=true" >> "${GITHUB_OUTPUT}"
           kubectl rollout status deployment/triton-server -n production --timeout=600s
-        env:
-          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
 
       # ── Post-deploy 검증 ──
       - name: Smoke test
@@ -124,7 +154,7 @@ jobs:
 
           for i in $(seq 1 30); do
             if curl -sf "http://localhost:8000/v2/health/ready" > /dev/null 2>&1; then
-              pytest tests/smoke/ --triton-url "http://localhost:8000" -v
+              pytest tests/smoke/ --run-live --triton-url "http://localhost:8000" -v
               exit 0
             fi
             echo "Waiting for port-forwarded Triton... (${i}/30)"

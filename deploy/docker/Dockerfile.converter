@@ -12,7 +12,6 @@ COPY requirements-converter.txt /tmp/requirements-converter.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-converter.txt
 
 COPY scripts/convert/ /opt/convert/
-RUN chmod +x /opt/convert/*.sh 2>/dev/null || true
 
 WORKDIR /workspace
 ENTRYPOINT ["/bin/bash"]

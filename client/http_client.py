@@ -16,7 +16,12 @@ HTTP Client — REST / KServe v2 Protocol
 
 import numpy as np
 
-from .base import BaseTritonClient, TritonConfig, http_ssl_context
+from .base import (
+    BaseTritonClient,
+    TritonConfig,
+    http_ssl_context,
+    numpy_to_triton_dtype,
+)
 
 
 class TritonHTTPClient(BaseTritonClient):
@@ -71,7 +76,9 @@ class TritonHTTPClient(BaseTritonClient):
         """NumPy 배열로 간편 추론 — 가장 흔한 사용 패턴"""
         inputs = []
         for name, data in input_data.items():
-            inp = self._httpclient.InferInput(name, list(data.shape), self._numpy_to_triton_dtype(data.dtype))
+            inp = self._httpclient.InferInput(
+                name, list(data.shape), numpy_to_triton_dtype(data.dtype)
+            )
             inp.set_data_from_numpy(data)
             inputs.append(inp)
 
@@ -80,20 +87,3 @@ class TritonHTTPClient(BaseTritonClient):
         result = self.infer(model_name, inputs, outputs, model_version=model_version)
 
         return {name: result.as_numpy(name) for name in output_names}
-
-    @staticmethod
-    def _numpy_to_triton_dtype(dtype: np.dtype) -> str:
-        mapping = {
-            np.float32: "FP32",
-            np.float16: "FP16",
-            np.float64: "FP64",
-            np.int32: "INT32",
-            np.int64: "INT64",
-            np.int16: "INT16",
-            np.int8: "INT8",
-            np.uint8: "UINT8",
-            np.bool_: "BOOL",
-        }
-        if dtype.type not in mapping:
-            raise ValueError(f"Unsupported NumPy dtype for Triton inference: {dtype}")
-        return mapping[dtype.type]

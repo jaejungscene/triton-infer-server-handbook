@@ -8,11 +8,11 @@ spec:
       containers:
         - name: triton
           args:
-            - tritonserver
             - --model-repository=/models
             - --strict-model-config=true
             - --allow-metrics=true
             - --allow-gpu-metrics=true
+            - --cache-config=local,size=67108864
             - --model-control-mode=explicit
             - --load-model=*
             - --log-verbose=0

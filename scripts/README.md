@@ -23,5 +23,7 @@
 
 `build.sh`는 PyYAML로 manifest 전체를 검증하고 모든 선택 모델을 임시 디렉토리에 먼저
 복사한 뒤 성공한 경우에만 `model_repository`를 교체합니다. enabled source·required artifact가
-없거나 선택 결과가 0개면 기존 repository를 수정하지 않고 실패합니다. `.env.*`는 Compose
+없거나 `target`과 `config.pbtxt`의 `name`이 다르거나 선택 결과가 0개면 기존 repository를
+수정하지 않고 실패합니다. `--env`는 각 manifest 항목의 선택적 `environments` 허용 목록을
+적용하며, 이 필드를 생략한 모델은 세 환경 모두에 배치할 수 있습니다. `.env.*`는 Compose
 설정이며 build 과정에서 shell script로 실행하지 않습니다.
