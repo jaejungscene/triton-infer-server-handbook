@@ -106,6 +106,9 @@ GPU 사용률이나 Triton queue time으로 확장하려면 Prometheus Adapter/K
 adapter 설정 없이 HPA에 직접 적는 것만으로는 autoscaling이 동작하지 않습니다.
 
 production Ingress는 `triton-ingress-basic-auth` Secret이 없으면 정상 인증을 구성할 수 없도록
-의도했습니다. basic auth는 예제를 안전하게 시작하기 위한 최소선입니다. 실제 서비스는 API
-gateway나 service mesh에서 OIDC/mTLS, tenant 권한, 요청 크기 제한, rate limit을 적용하고
-`/v2/repository/**` 모델 제어 경로는 배포 주체만 호출할 수 있도록 inference 경로와 분리합니다.
+의도했습니다. HTTP는 `/v2`, health, `/v2/models/*`만, gRPC는 상태·metadata·statistics·infer
+메서드만 allowlist합니다. repository load/unload, trace 설정, system/CUDA shared-memory 등록은
+외부 Ingress에서 404가 정상입니다. 운영 API는 RBAC로 통제된 작업자가 `kubectl port-forward`
+또는 별도 내부 관리 gateway로 호출합니다. `SharedMemoryTritonClient`도 신뢰된 내부 endpoint에서만
+사용합니다. basic auth는 예제의 최소선이므로 실제 서비스는 API gateway나 service mesh에서
+OIDC/mTLS, tenant 권한, 요청 크기 제한, rate limit을 적용해야 합니다.

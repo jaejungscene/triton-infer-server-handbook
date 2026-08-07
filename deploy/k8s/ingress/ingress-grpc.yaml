@@ -12,8 +12,64 @@ spec:
     - host: triton-grpc.example.com
       http:
         paths:
-          - path: /
-            pathType: Prefix
+          - path: /inference.GRPCInferenceService/ServerLive
+            pathType: Exact
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: grpc
+          - path: /inference.GRPCInferenceService/ServerReady
+            pathType: Exact
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: grpc
+          - path: /inference.GRPCInferenceService/ModelReady
+            pathType: Exact
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: grpc
+          - path: /inference.GRPCInferenceService/ServerMetadata
+            pathType: Exact
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: grpc
+          - path: /inference.GRPCInferenceService/ModelMetadata
+            pathType: Exact
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: grpc
+          - path: /inference.GRPCInferenceService/ModelConfig
+            pathType: Exact
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: grpc
+          - path: /inference.GRPCInferenceService/ModelStatistics
+            pathType: Exact
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: grpc
+          - path: /inference.GRPCInferenceService/ModelInfer
+            pathType: Exact
+            backend:
+              service:
+                name: triton-server
+                port:
+                  name: grpc
+          - path: /inference.GRPCInferenceService/ModelStreamInfer
+            pathType: Exact
             backend:
               service:
                 name: triton-server

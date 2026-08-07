@@ -376,6 +376,35 @@ class TestDeploymentRuntimeArgs:
         assert http_port == "http"
         assert grpc_port == "grpc"
 
+    def test_ingresses_expose_inference_api_only(self, project_root):
+        ingress_dir = os.path.join(project_root, "deploy", "k8s", "ingress")
+        http_ingress = self._load_yaml(
+            os.path.join(ingress_dir, "ingress-http.yaml")
+        )
+        grpc_ingress = self._load_yaml(
+            os.path.join(ingress_dir, "ingress-grpc.yaml")
+        )
+
+        http_paths = {
+            (path["path"], path["pathType"])
+            for path in http_ingress["spec"]["rules"][0]["http"]["paths"]
+        }
+        assert http_paths == {
+            ("/v2", "Exact"),
+            ("/v2/health", "Prefix"),
+            ("/v2/models", "Prefix"),
+        }
+
+        grpc_paths = grpc_ingress["spec"]["rules"][0]["http"]["paths"]
+        assert all(path["pathType"] == "Exact" for path in grpc_paths)
+        assert all("Repository" not in path["path"] for path in grpc_paths)
+        assert all("SharedMemory" not in path["path"] for path in grpc_paths)
+        assert {path["path"].rsplit("/", 1)[-1] for path in grpc_paths} >= {
+            "ModelInfer",
+            "ModelStreamInfer",
+            "ServerReady",
+        }
+
     def test_deployments_define_safe_rollout_and_startup(self, project_root):
         base_deployment = self._load_yaml(
             os.path.join(project_root, "deploy", "k8s", "base", "deployment.yaml")
