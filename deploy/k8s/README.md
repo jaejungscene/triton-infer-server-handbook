@@ -105,6 +105,13 @@ GPU 사용률이나 Triton queue time으로 확장하려면 Prometheus Adapter/K
 이름과 단위를 staging에서 검증한 뒤 HPA `metrics`를 교체합니다. DCGM exporter metric 이름을
 adapter 설정 없이 HPA에 직접 적는 것만으로는 autoscaling이 동작하지 않습니다.
 
+prod는 `topologySpreadConstraints`를 `kubernetes.io/hostname` 기준 `DoNotSchedule`로 적용해
+가용한 GPU 노드 사이의 replica 편중을 막습니다. GPU 노드가 부족하면 일부 Pod가 Pending인
+것이 정상적인 보호 동작이므로, 배포 전 `minReplicas`를 수용할 GPU·CPU·메모리 capacity와
+cluster autoscaler의 확장 한도를 확인해야 합니다. staging/prod namespace는 Pod Security
+baseline을 enforce하고 restricted 위반을 audit/warn합니다. NVIDIA runtime image를 non-root와
+read-only root filesystem으로 검증한 뒤 restricted enforce로 올리는 것을 승격 조건으로 둡니다.
+
 production Ingress는 `triton-ingress-basic-auth` Secret이 없으면 정상 인증을 구성할 수 없도록
 의도했습니다. HTTP는 `/v2`, health, `/v2/models/*`만, gRPC는 상태·metadata·statistics·infer
 메서드만 allowlist합니다. repository load/unload, trace 설정, system/CUDA shared-memory 등록은

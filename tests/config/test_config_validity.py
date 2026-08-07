@@ -334,6 +334,29 @@ class TestDeploymentRuntimeArgs:
             )
         )
         assert helm_prod["networkPolicy"]["allowSameNamespace"] is False
+        assert helm_prod["topologySpread"]["enabled"] is True
+        assert helm_prod["topologySpread"]["whenUnsatisfiable"] == \
+            "DoNotSchedule"
+
+        replica_patch = self._load_yaml(
+            os.path.join(prod_dir, "replica_patch.yaml")
+        )
+        constraints = replica_patch["spec"]["template"]["spec"][
+            "topologySpreadConstraints"
+        ]
+        assert constraints[0]["topologyKey"] == "kubernetes.io/hostname"
+        assert constraints[0]["whenUnsatisfiable"] == "DoNotSchedule"
+
+    def test_restricted_namespaces_enforce_pod_security_baseline(self, project_root):
+        overlays_dir = os.path.join(project_root, "deploy", "k8s", "overlays")
+        for environment in ("staging", "prod"):
+            namespace = self._load_yaml(
+                os.path.join(overlays_dir, environment, "namespace.yaml")
+            )
+            labels = namespace["metadata"]["labels"]
+            assert labels["pod-security.kubernetes.io/enforce"] == "baseline"
+            assert labels["pod-security.kubernetes.io/audit"] == "restricted"
+            assert labels["pod-security.kubernetes.io/warn"] == "restricted"
 
     def test_ingress_is_opt_in_and_production_is_authenticated(self, project_root):
         base_dir = os.path.join(project_root, "deploy", "k8s", "base")
