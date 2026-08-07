@@ -137,6 +137,36 @@ class TestManifest:
             assert "source" in model, f"Model {i} missing 'source' field"
             assert "target" in model, f"Model {i} missing 'target' field"
 
+    def test_manifest_targets_match_triton_model_names(self, serving_dir):
+        """manifest target과 config.pbtxt name은 동일해야 repository load가 성공함"""
+        manifest_path = os.path.join(serving_dir, "manifest.yaml")
+        with open(manifest_path) as f:
+            manifest = yaml.safe_load(f)
+
+        for model in manifest.get("models", []):
+            config_path = os.path.join(serving_dir, model["source"], "config.pbtxt")
+            with open(config_path) as config_file:
+                config = config_file.read()
+            match = re.search(r'^\s*name\s*:\s*"([A-Za-z0-9._-]+)"', config, re.MULTILINE)
+            assert match, f"Configured model name not found: {config_path}"
+            assert match.group(1) == model["target"], (
+                f"Manifest target {model['target']} does not match "
+                f"config name {match.group(1)}"
+            )
+
+    def test_manifest_environments_are_supported(self, serving_dir):
+        manifest_path = os.path.join(serving_dir, "manifest.yaml")
+        with open(manifest_path) as f:
+            manifest = yaml.safe_load(f)
+
+        supported = {"dev", "staging", "prod"}
+        for model in manifest.get("models", []):
+            environments = model.get("environments", supported)
+            assert environments, f"Empty environments for {model['target']}"
+            assert set(environments).issubset(supported), (
+                f"Unsupported environments for {model['target']}: {environments}"
+            )
+
     def test_enabled_manifest_models_have_runtime_payload(self, serving_dir):
         """enabled 모델은 Triton이 로드할 수 있는 런타임 payload를 포함해야 함"""
         manifest_path = os.path.join(serving_dir, "manifest.yaml")

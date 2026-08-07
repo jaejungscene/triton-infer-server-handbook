@@ -12,6 +12,7 @@
 #   - source: models/serving/ 기준 상대 경로
 #   - target: model_repository/ 에 생성될 디렉토리명 (Triton이 인식하는 모델명)
 #   - tags: 선택적 빌드 필터링용
+#   - environments: 배치 허용 환경. 생략하면 dev, staging, prod 모두 허용
 #   - enabled: false로 설정하면 빌드에서 제외
 #   - artifact: external 은 Git에 없는 모델 바이너리를 CI/artifact 저장소에서 배치해야 함
 # =============================================================================
@@ -61,6 +62,7 @@ models:
   - source: nlp/text_classifier
     target: text_classifier
     tags: [cpu, python, nlp, smoke]
+    environments: [dev, staging, prod]
     enabled: true
 
   # ---------------------------------------------------------------------------
