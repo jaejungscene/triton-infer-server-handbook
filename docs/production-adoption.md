@@ -65,7 +65,7 @@ sequenceDiagram
     Dev->>CI: PR with config/model changes
     CI->>CI: validate.sh, pytest config, lint
     CI->>CI: build model_repository + serving image
-    CI->>Stg: deploy same image SHA with explicit mode
+    CI->>Stg: resolve SHA tag and deploy immutable digest
     Stg->>Stg: integration contract test
     CI->>Perf: weekly or manual benchmark
     Dev->>Prod: approve release
@@ -73,10 +73,12 @@ sequenceDiagram
     Prod->>Prod: monitor alerts and stats
 ```
 
-Production workflow의 `image_tag`에는 `main`에 포함된 40자리 commit SHA만 넣습니다. workflow는
-그 SHA의 image뿐 아니라 같은 SHA의 Kustomize manifest와 smoke test를 checkout합니다. 승인
-화면에는 image SHA, model manifest revision, config 변경을 하나의 release 단위로 표시하고,
-branch 밖 commit이나 mutable tag는 production 입력으로 허용하지 않습니다.
+Production workflow의 `image_tag`에는 `main`에 포함된 40자리 commit SHA만 넣습니다. 이 SHA는
+release 선택자이며, workflow는 registry에서 해당 tag의 digest를 해석해 Deployment에는
+`image@sha256:...`를 기록합니다. 같은 SHA의 Kustomize manifest와 smoke test도 checkout하므로
+승인 화면에는 commit SHA, 실제 image digest, model manifest revision, config 변경을 하나의
+release 단위로 표시합니다. branch 밖 commit이나 임의 tag는 production 입력으로 허용하지
+않습니다.
 기본 image publish 단계도 40자리 commit SHA tag만 생성하며 `main`이나 `latest` tag는 만들지
 않습니다. 사람이 mutable tag를 release 입력으로 오인할 가능성을 배포 이전에 제거하기 위한
 정책입니다.
@@ -179,10 +181,11 @@ GRAFANA_ADMIN_PASSWORD='<secret>' \
 docker compose -f deploy/docker/docker-compose.prod.yml up -d
 ```
 
-Kubernetes에서도 Triton의 8000/8001 port를 그대로 인터넷에 노출하지 않습니다. Ingress/API
-gateway에서 사용자 인증을 적용하고, repository load/unload API는 배포 identity만 접근할 수
-있게 경로 또는 별도 내부 gateway로 분리합니다. 제공하는 prod Kustomize 예시는 TLS와 basic
-auth를 최소선으로 두며, 조직의 OIDC 또는 mTLS 정책으로 교체하는 것을 권장합니다.
+Kubernetes에서도 Triton의 8000/8001 port를 그대로 인터넷에 노출하지 않습니다. 제공하는
+Ingress는 HTTP `/v2`, health, model API와 gRPC inference/상태/metadata 메서드만 allowlist하며
+repository·trace·shared-memory 제어 API는 외부에서 차단합니다. prod Kustomize 예시는 TLS와
+basic auth를 최소선으로 두므로 조직의 OIDC 또는 mTLS 정책으로 교체합니다. 실제 장애 대응과
+전체 release/긴급 Deployment rollback의 차이는 [장애 대응 Runbook](runbook.md)을 따릅니다.
 
 ## 참고 문서
 

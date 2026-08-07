@@ -224,12 +224,13 @@ triton-infer-server-handbook/
 | [Triton 서빙 아키텍처](docs/architecture.md) | 요청 처리 경로, 모델 레포지토리 전략, serving 패턴, 관측성 |
 | [Production 도입 가이드](docs/production-adoption.md) | production 도입 단계, release checklist, rollback 기준 |
 | [실무 시나리오](docs/scenarios.md) | 단일 모델, ensemble, GPU OOM, cache, LLM streaming, release 시나리오 |
+| [Production 장애 대응 Runbook](docs/runbook.md) | alert별 진단, 완화, digest 확인, rollback, 복구 판정 |
 
 핵심 운영 원칙은 단순합니다.
 
 1. dev는 빠른 실험을 위해 `poll`을 허용합니다.
 2. staging/prod는 `explicit` 모드로 load/unload를 통제합니다.
-3. production은 image tag와 model repository revision을 고정합니다.
+3. production은 registry image digest와 model repository revision을 고정합니다.
 4. 모든 모델 변경은 config 검증, smoke test, metrics 확인을 거칩니다.
 5. 성능 튜닝은 `config.pbtxt` 변경 전후의 latency, throughput, GPU memory를 숫자로 비교합니다.
 
@@ -380,8 +381,8 @@ main merge → ci-build-test (빌드 + smoke test + GHCR push)
 수동 승인 → cd-production (prod 배포 + smoke test + 실패 시 자동 rollback)
 ```
 
-Production 배포 입력은 `main`에 포함된 40자리 commit SHA입니다. workflow는 해당 SHA의
-image, Kustomize manifest, smoke test를 같은 revision으로 묶어 실행합니다.
+Production 배포 입력은 `main`에 포함된 40자리 commit SHA입니다. workflow는 그 SHA tag를
+registry digest로 해석하고, 해당 revision의 Kustomize manifest와 smoke test를 함께 실행합니다.
 성능 baseline 비교는 `perf-benchmark.yml`의 주간/수동 GPU workflow가 담당하며 production
 workflow 안에서 자동 실행되지는 않습니다. release 승인 전 같은 image SHA의 최신 결과를
 확인합니다.
