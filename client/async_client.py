@@ -1,48 +1,46 @@
-"""
-Async Client — 비동기 (asyncio) Triton 클라이언트
-
-FastAPI, aiohttp 등 비동기 웹 프레임워크와 연동 시 사용.
-
-사용 예:
-    import asyncio
-    from client.async_client import TritonAsyncClient, TritonConfig
-
-    async def main():
-        config = TritonConfig(grpc_url="localhost:8001")
-        client = TritonAsyncClient(config)
-
-        result = await client.infer_numpy(
-            model_name="resnet50",
-            input_data={"input": numpy_array},
-            output_names=["output"],
-        )
-
-    asyncio.run(main())
-"""
-
-import asyncio
-from functools import partial
+"""Native asyncio gRPC client for unary Triton inference."""
 
 import numpy as np
 
-from .base import TritonConfig
-from .grpc_client import TritonGRPCClient
+from .base import TritonConfig, grpc_tls_kwargs, numpy_to_triton_dtype
 
 
 class TritonAsyncClient:
-    """비동기 래퍼 — gRPC 클라이언트의 callback 기반 async_infer 활용"""
+    """Use Triton's grpc.aio transport so cancellation reaches in-flight RPCs."""
 
     def __init__(self, config: TritonConfig | None = None):
         self.config = config or TritonConfig()
-        self._sync_client = TritonGRPCClient(self.config)
+        import tritonclient.grpc as grpcclient
+        import tritonclient.grpc.aio as grpc_aio
+
+        self._grpcclient = grpcclient
+        self._client = grpc_aio.InferenceServerClient(
+            url=self.config.grpc_url,
+            verbose=self.config.verbose,
+            ssl=self.config.ssl,
+            **grpc_tls_kwargs(self.config),
+        )
+        self._closed = False
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("async client is closed")
 
     async def is_server_ready(self) -> bool:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._sync_client.is_server_ready)
+        self._ensure_open()
+        return await self._client.is_server_ready(
+            headers=self.config.headers,
+            client_timeout=self.config.timeout,
+        )
 
     async def is_model_ready(self, model_name: str, model_version: str = "") -> bool:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, partial(self._sync_client.is_model_ready, model_name, model_version))
+        self._ensure_open()
+        return await self._client.is_model_ready(
+            model_name,
+            model_version,
+            headers=self.config.headers,
+            client_timeout=self.config.timeout,
+        )
 
     async def infer_numpy(
         self,
@@ -51,18 +49,38 @@ class TritonAsyncClient:
         output_names: list[str],
         model_version: str = "",
     ) -> dict[str, np.ndarray]:
-        """비동기 NumPy 추론"""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None,
-            partial(
-                self._sync_client.infer_numpy,
-                model_name=model_name,
-                input_data=input_data,
-                output_names=output_names,
-                model_version=model_version,
-            ),
+        """Run one native asynchronous inference request."""
+        self._ensure_open()
+        inputs = []
+        for name, data in input_data.items():
+            infer_input = self._grpcclient.InferInput(
+                name, list(data.shape), numpy_to_triton_dtype(data.dtype)
+            )
+            infer_input.set_data_from_numpy(data)
+            inputs.append(infer_input)
+        outputs = [
+            self._grpcclient.InferRequestedOutput(name) for name in output_names
+        ]
+        result = await self._client.infer(
+            model_name=model_name,
+            inputs=inputs,
+            outputs=outputs,
+            headers=self.config.headers,
+            client_timeout=self.config.timeout,
+            model_version=model_version,
         )
+        return {name: result.as_numpy(name) for name in output_names}
 
-    def close(self):
-        self._sync_client.close()
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        await self._client.close()
+
+    async def __aenter__(self):
+        self._ensure_open()
+        return self
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        await self.close()
+        return False

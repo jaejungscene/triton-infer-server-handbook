@@ -34,7 +34,7 @@ import uuid
 
 import numpy as np
 
-from .base import TritonConfig, http_ssl_context
+from .base import TritonConfig, http_ssl_context, numpy_to_triton_dtype
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -270,13 +270,7 @@ class TritonSHMClient:
 
     @staticmethod
     def _numpy_to_triton_dtype(dtype: np.dtype) -> str:
-        mapping = {
-            np.float32: "FP32",
-            np.float16: "FP16",
-            np.int32: "INT32",
-            np.int64: "INT64",
-            np.uint8: "UINT8",
-        }
-        if dtype.type not in mapping:
-            raise ValueError(f"Unsupported NumPy dtype for Triton shared memory inference: {dtype}")
-        return mapping[dtype.type]
+        triton_dtype = numpy_to_triton_dtype(dtype)
+        if triton_dtype == "BYTES":
+            raise ValueError("BYTES tensors are not supported by this shared-memory wrapper")
+        return triton_dtype

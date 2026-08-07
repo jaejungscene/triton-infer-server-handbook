@@ -56,6 +56,16 @@ def test_config_rejects_invalid_timeout_and_partial_mtls_identity():
         TritonConfig(timeout=0)
     with pytest.raises(ValueError, match="configured together"):
         TritonConfig(ssl=True, ssl_cert="client.crt")
+    with pytest.raises(ValueError, match="finite"):
+        TritonConfig(timeout=float("nan"))
+    with pytest.raises(ValueError, match="without a URL scheme"):
+        TritonConfig(url="https://localhost:8000")
+    with pytest.raises(ValueError, match="host:port"):
+        TritonConfig(grpc_url="localhost:0")
+    with pytest.raises(ValueError, match="ssl must be enabled"):
+        TritonConfig(ssl_root_cert="ca.crt")
+    with pytest.raises(ValueError, match="headers"):
+        TritonConfig(headers={"authorization": "token\nforged"})
 
 
 def test_http_applies_timeout_headers_and_tls_context(
