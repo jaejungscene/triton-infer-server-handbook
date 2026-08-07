@@ -20,9 +20,9 @@ output [
     dims: [3, 640, 640]
   },
   {
-    name: "SCALE_FACTOR"
+    name: "IMAGE_METADATA"
     data_type: TYPE_FP32
-    dims: [2]
+    dims: [5] # [scale, pad_x, pad_y, original_width, original_height]
   }
 ]
 
