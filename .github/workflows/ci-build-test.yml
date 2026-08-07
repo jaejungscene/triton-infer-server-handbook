@@ -65,14 +65,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker image
+      - name: Build and publish candidate image
+        id: build
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           file: deploy/docker/Dockerfile
-          push: false
-          load: true
-          tags: triton-server:test
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           build-args: |
             VCS_REF=${{ github.sha }}
           cache-from: type=gha
@@ -85,12 +85,14 @@ jobs:
             --name triton-test \
             --gpus all \
             -p 8000:8000 -p 8001:8001 -p 8002:8002 \
-            triton-server:test \
+            "${RELEASE_IMAGE}" \
             --model-repository=/models \
             --model-control-mode=poll \
             --strict-model-config=true \
             --cache-config=local,size=16777216 \
             --log-verbose=1
+        env:
+          RELEASE_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
       - name: Wait for server ready
         uses: ./.github/actions/triton-health-check
@@ -109,24 +111,3 @@ jobs:
         run: |
           docker stop triton-test 2>/dev/null || true
           docker rm triton-test 2>/dev/null || true
-
-      # ── Step 4: Push image to GHCR ──
-      - name: Generate image tags
-        id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,format=long,prefix=
-
-      - name: Push Docker image
-        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
-        with:
-          context: .
-          file: deploy/docker/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          build-args: |
-            VCS_REF=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

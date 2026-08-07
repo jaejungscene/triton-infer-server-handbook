@@ -539,7 +539,7 @@ class TestReleaseWorkflow:
             with open(path) as workflow_file:
                 assert command in workflow_file.read()
 
-    def test_main_build_tracks_tests_and_publishes_only_sha_tag(self, project_root):
+    def test_main_build_tests_the_published_digest(self, project_root):
         workflow_path = os.path.join(
             project_root, ".github", "workflows", "ci-build-test.yml"
         )
@@ -549,9 +549,22 @@ class TestReleaseWorkflow:
         assert "- 'client/**'" in workflow
         assert "- 'tests/**'" in workflow
         assert "--cache-config=local,size=16777216" in workflow
-        assert "type=sha,format=long,prefix=" in workflow
-        assert "type=ref,event=branch" not in workflow
-        assert "type=raw,value=latest" not in workflow
+        assert "id: build" in workflow
+        assert "push: true" in workflow
+        assert "${{ env.IMAGE_NAME }}:${{ github.sha }}" in workflow
+        assert "@${{ steps.build.outputs.digest }}" in workflow
+        assert workflow.count("uses: docker/build-push-action@") == 1
+
+    def test_deploy_workflows_pin_the_resolved_digest(self, project_root):
+        for filename in ("cd-staging.yml", "cd-production.yml"):
+            path = os.path.join(project_root, ".github", "workflows", filename)
+            with open(path) as workflow_file:
+                workflow = workflow_file.read()
+
+            assert "docker buildx imagetools inspect" in workflow
+            assert "^sha256:[0-9a-f]{64}$" in workflow
+            assert 'IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}' in workflow
+            assert 'kustomize edit set image "triton-server=${IMAGE_REF}"' in workflow
 
     def test_perf_benchmark_uses_release_runtime_contract(self, project_root):
         workflow_path = os.path.join(
