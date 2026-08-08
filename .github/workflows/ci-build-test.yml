@@ -48,9 +48,9 @@ jobs:
         run: python -m pip install -r requirements-dev.txt
 
       # ── Step 1: Build model_repository ──
-      - name: Build model repository
+      - name: Build production model repository
         run: |
-          ./scripts/build.sh --env dev --clean
+          ./scripts/build.sh --env prod --clean
           echo "Model repository contents:"
           ls -la model_repository/
 

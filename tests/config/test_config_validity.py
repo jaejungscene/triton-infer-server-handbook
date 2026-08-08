@@ -569,6 +569,8 @@ class TestReleaseWorkflow:
         with open(workflow_path) as workflow_file:
             workflow = workflow_file.read()
 
+        assert "./scripts/build.sh --env prod --clean" in workflow
+        assert "./scripts/build.sh --env dev --clean" not in workflow
         assert "- 'client/**'" in workflow
         assert "- 'tests/**'" in workflow
         assert "--cache-config=local,size=16777216" in workflow

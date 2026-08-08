@@ -107,6 +107,10 @@ release metadata에 추가하고, staging에서 검증한 바로 그 revision만
 - staging에서 Repository Index API, `/ready`, `/stats`, `/metrics` 확인
 - perf baseline 대비 latency/throughput 악화 여부 확인
 
+로컬에서 staging 전용 구성을 확인할 때는 `--env staging`을 사용할 수 있지만, main release
+CI는 `--env prod`로 최종 모델 세트를 image에 포함합니다. staging CD는 별도 staging image를
+다시 만들지 않고 그 production digest를 검증해야 환경별 artifact drift가 생기지 않습니다.
+
 성능 기준선은 동일한 GPU 종류, Triton image, 모델 artifact, 입력 데이터, concurrency에서
 측정해야 합니다. `tests/perf/baseline.json`의 예시 숫자를 그대로 SLO로 사용하지 말고,
 전용 runner에서 여러 차례 측정한 안정 구간의 하한(throughput)과 상한(p95 latency)으로
