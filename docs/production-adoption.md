@@ -79,9 +79,10 @@ release 선택자이며, workflow는 registry에서 해당 tag의 digest를 해�
 승인 화면에는 commit SHA, 실제 image digest, model manifest revision, config 변경을 하나의
 release 단위로 표시합니다. branch 밖 commit이나 임의 tag는 production 입력으로 허용하지
 않습니다.
-기본 image publish 단계도 40자리 commit SHA tag만 생성하며 `main`이나 `latest` tag는 만들지
-않습니다. 사람이 mutable tag를 release 입력으로 오인할 가능성을 배포 이전에 제거하기 위한
-정책입니다.
+image build 단계는 먼저 `candidate-<40자리 commit SHA>` tag를 push하고 그 digest를 직접
+smoke test합니다. 성공한 뒤에만 동일 digest에 `<40자리 commit SHA>` release tag를 붙이며
+`main`이나 `latest` tag는 만들지 않습니다. 따라서 실패한 CI의 candidate는 production
+workflow가 찾는 release tag로 승격되지 않습니다.
 
 성능 비교는 production deploy job 안에서 실행되지 않습니다. self-hosted GPU runner의
 `perf-benchmark.yml`을 주간 또는 수동으로 실행하고, 승인자는 배포할 image SHA와 같은 revision의

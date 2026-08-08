@@ -574,9 +574,14 @@ class TestReleaseWorkflow:
         assert "--cache-config=local,size=16777216" in workflow
         assert "id: build" in workflow
         assert "push: true" in workflow
-        assert "${{ env.IMAGE_NAME }}:${{ github.sha }}" in workflow
+        assert "${{ env.IMAGE_NAME }}:candidate-${{ github.sha }}" in workflow
         assert "@${{ steps.build.outputs.digest }}" in workflow
         assert workflow.count("uses: docker/build-push-action@") == 1
+        assert "docker buildx imagetools create" in workflow
+        assert 'test "${PROMOTED_DIGEST}" = "${CANDIDATE_DIGEST}"' in workflow
+        assert workflow.index("- name: Run smoke tests") < workflow.index(
+            "- name: Promote tested digest to release tag"
+        )
 
     def test_deploy_workflows_pin_the_resolved_digest(self, project_root):
         for filename in ("cd-staging.yml", "cd-production.yml"):
