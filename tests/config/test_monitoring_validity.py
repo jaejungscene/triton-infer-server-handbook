@@ -47,3 +47,18 @@ def test_dashboard_only_uses_metrics_exported_by_default(project_root):
         'environment=~"$environment"' in expression
         for expression in expressions
     )
+    legends = [
+        target["legendFormat"]
+        for panel in dashboard["panels"]
+        for target in panel.get("targets", [])
+    ]
+    assert all("{{ environment }}" in legend for legend in legends)
+
+    panels = {panel["title"]: panel for panel in dashboard["panels"]}
+    latency_expressions = [
+        target["expr"]
+        for target in panels["Average Request / Queue Latency (ms)"]["targets"]
+    ]
+    assert all(">= 0.1" in expression for expression in latency_expressions)
+    assert ">= 0.1" in panels["Error Rate"]["targets"][0]["expr"]
+    assert "> 0" in panels["Cache Hit Rate"]["targets"][0]["expr"]
