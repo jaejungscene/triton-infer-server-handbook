@@ -309,10 +309,10 @@ triton-infer-server-handbook/
 # Helm — dev
 helm install triton deploy/helm/triton -f deploy/helm/triton/values.dev.yaml
 
-# Helm — prod (CI가 발행한 40자리 commit SHA 지정)
+# Helm — prod (CI가 검증한 registry digest 지정)
 helm upgrade --install triton deploy/helm/triton \
   -f deploy/helm/triton/values.prod.yaml \
-  --set image.tag=<40-character-commit-sha>
+  --set image.digest=sha256:<64-hex-characters>
 
 # Helm 롤백
 helm rollback triton 1

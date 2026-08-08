@@ -6,6 +6,8 @@
 image:
   repository: triton-server
   tag: local
+  digest: ""
+  requireDigest: false
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

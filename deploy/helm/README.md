@@ -25,11 +25,11 @@ helm install triton deploy/helm/triton \
   -f deploy/helm/triton/values.staging.yaml \
   --namespace triton
 
-# prod 환경 (CI가 발행한 40자리 commit SHA 고정)
+# prod 환경 (CI가 검증한 registry digest 고정)
 helm upgrade --install triton deploy/helm/triton \
   -f deploy/helm/triton/values.prod.yaml \
   --set image.repository=ghcr.io/your-org/triton-infer-server-handbook \
-  --set image.tag=<40-character-commit-sha> \
+  --set image.digest=sha256:<64-hex-characters> \
   --namespace triton
 ```
 
@@ -99,11 +99,11 @@ helm status triton -n triton
 # 설정값 확인
 helm get values triton -n triton
 
-# commit SHA image로 교체 (무중단 롤링 업데이트)
+# immutable digest image로 교체 (무중단 롤링 업데이트)
 helm upgrade triton deploy/helm/triton \
   -f deploy/helm/triton/values.prod.yaml \
   --set image.repository=ghcr.io/your-org/triton-infer-server-handbook \
-  --set image.tag=<40-character-commit-sha> \
+  --set image.digest=sha256:<64-hex-characters> \
   --namespace triton
 
 # 이전 버전으로 롤백

@@ -334,6 +334,7 @@ class TestDeploymentRuntimeArgs:
             )
         )
         assert helm_prod["networkPolicy"]["allowSameNamespace"] is False
+        assert helm_prod["image"]["requireDigest"] is True
         assert helm_prod["topologySpread"]["enabled"] is True
         assert helm_prod["topologySpread"]["whenUnsatisfiable"] == \
             "DoNotSchedule"
@@ -463,6 +464,19 @@ class TestDeploymentRuntimeArgs:
         assert triton["command"][0].startswith("--")
         assert "tritonserver" not in triton["command"]
         assert triton["pull_policy"] == "always"
+
+    def test_helm_production_requires_a_valid_image_digest(self, project_root):
+        chart_dir = os.path.join(project_root, "deploy", "helm", "triton")
+        deployment_path = os.path.join(chart_dir, "templates", "deployment.yaml")
+        with open(deployment_path) as deployment_file:
+            deployment = deployment_file.read()
+
+        assert "image.requireDigest=true" in deployment
+        assert 'regexMatch "^sha256:[0-9a-f]{64}$"' in deployment
+        assert (
+            'image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"'
+            in deployment
+        )
 
     def test_development_compose_environment_controls_are_effective(self, project_root):
         compose = self._load_yaml(
@@ -713,6 +727,8 @@ class TestImmutableModelRelease:
         assert values["image"] == {
             "repository": "triton-server",
             "tag": "local",
+            "digest": "",
+            "requireDigest": False,
             "pullPolicy": "IfNotPresent",
         }
         assert values["persistence"]["enabled"] is False

@@ -122,11 +122,19 @@ jobs:
       - name: Validate Helm chart
         run: |
           helm lint deploy/helm/triton
-          for values in deploy/helm/triton/values.{dev,staging,prod}.yaml; do
-            echo "Validating: ${values}"
-            helm lint deploy/helm/triton -f "${values}"
-            helm template triton deploy/helm/triton -f "${values}" > /dev/null
-          done
+          helm lint deploy/helm/triton -f deploy/helm/triton/values.dev.yaml
+          helm template triton deploy/helm/triton \
+            -f deploy/helm/triton/values.dev.yaml > /dev/null
+          helm lint deploy/helm/triton -f deploy/helm/triton/values.staging.yaml
+          helm template triton deploy/helm/triton \
+            -f deploy/helm/triton/values.staging.yaml > /dev/null
+          RELEASE_DIGEST="sha256:$(printf '0%.0s' {1..64})"
+          helm lint deploy/helm/triton \
+            -f deploy/helm/triton/values.prod.yaml \
+            --set "image.digest=${RELEASE_DIGEST}"
+          helm template triton deploy/helm/triton \
+            -f deploy/helm/triton/values.prod.yaml \
+            --set "image.digest=${RELEASE_DIGEST}" > /dev/null
 
       - name: Validate Docker Compose
         run: |
