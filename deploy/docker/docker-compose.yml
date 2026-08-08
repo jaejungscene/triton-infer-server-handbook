@@ -8,7 +8,7 @@
 
 services:
   triton:
-    image: ${TRITON_DEV_IMAGE:-nvcr.io/nvidia/tritonserver:24.08-py3}
+    image: ${TRITON_DEV_IMAGE:-nvcr.io/nvidia/tritonserver:24.08-py3@sha256:0b6a7449ea6a46fd167376d40418b169ed82cd36addc6f6c56fe2cbda4294e13}
     container_name: triton-server
     ports:
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${TRITON_HTTP_PORT:-8000}:8000"

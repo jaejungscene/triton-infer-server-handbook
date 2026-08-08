@@ -15,7 +15,10 @@ def _model_names(path):
 
 
 def test_every_baseline_has_a_reproducible_profile():
-    baseline_models = _model_names(PERF_DIR / "baseline.json")
+    baseline_path = PERF_DIR / "baseline.json"
+    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    assert "@sha256:" in baseline["_metadata"]["triton_image"]
+    baseline_models = set(baseline["models"])
     profile_models = _model_names(PERF_DIR / "profiles.json")
     assert profile_models == baseline_models
 

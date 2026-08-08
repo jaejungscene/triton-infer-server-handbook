@@ -53,6 +53,10 @@ upstream release note와 새 SHA를 함께 검토합니다. repository 내부 co
 관련 패키지를 한 번에 무작정 올리지 않고 unit/config/smoke 결과와 converter image build를
 확인한 별도 PR로 수행합니다.
 
+Triton container는 사람이 읽는 release tag와 immutable digest를 함께 기록합니다. 버전을
+올릴 때 Dockerfile 두 개, dev Compose, perf SDK, `tests/perf/baseline.json`의 tag/digest를 같은
+PR에서 갱신하고 새 digest의 출처와 smoke/perf 결과를 남깁니다.
+
 ## 커밋 메시지
 
 ```

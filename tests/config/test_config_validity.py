@@ -699,6 +699,31 @@ class TestImmutableModelRelease:
             ignore_rules = dockerignore_content.read()
         assert "!model_repository/**" in ignore_rules
 
+    def test_triton_runtime_and_perf_images_are_digest_pinned(self, project_root):
+        digest_reference = re.compile(
+            r"nvcr\.io/nvidia/tritonserver:24\.08-py3(?:-sdk)?@sha256:[0-9a-f]{64}"
+        )
+        for relative_path in (
+            "deploy/docker/Dockerfile",
+            "deploy/docker/Dockerfile.converter",
+            "deploy/docker/docker-compose.yml",
+            ".env.dev",
+            ".github/workflows/perf-benchmark.yml",
+        ):
+            path = os.path.join(project_root, relative_path)
+            with open(path) as source_file:
+                source = source_file.read()
+            assert digest_reference.search(source), f"Unpinned Triton image: {relative_path}"
+
+        for dockerfile_name in ("Dockerfile", "Dockerfile.converter"):
+            path = os.path.join(
+                project_root, "deploy", "docker", dockerfile_name
+            )
+            with open(path) as dockerfile:
+                source = dockerfile.read()
+            assert "ARG TRITON_IMAGE=" in source
+            assert "FROM ${TRITON_IMAGE}" in source
+
     def test_ci_smoke_tests_the_bundled_repository(self, project_root):
         workflow_path = os.path.join(
             project_root, ".github", "workflows", "ci-build-test.yml"
