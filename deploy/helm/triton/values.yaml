@@ -66,6 +66,9 @@ service:
 networkPolicy:
   enabled: false
   allowSameNamespace: true
+  egress:
+    enabled: false
+    rules: []
   ingressNamespaceSelector:
     kubernetes.io/metadata.name: ingress-nginx
   monitoringNamespaceSelector:

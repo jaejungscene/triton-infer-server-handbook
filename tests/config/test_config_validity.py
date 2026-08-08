@@ -299,7 +299,10 @@ class TestDeploymentRuntimeArgs:
 
             policy = self._load_yaml(os.path.join(overlay_dir, "network_policy.yaml"))
             assert policy["kind"] == "NetworkPolicy"
-            assert policy["spec"]["policyTypes"] == ["Ingress"]
+            expected_policy_types = (
+                ["Ingress", "Egress"] if overlay == "prod" else ["Ingress"]
+            )
+            assert policy["spec"]["policyTypes"] == expected_policy_types
             assert policy["spec"]["podSelector"]["matchLabels"]["app"] == \
                 "triton-server"
 
@@ -311,6 +314,8 @@ class TestDeploymentRuntimeArgs:
             for rule in prod_policy["spec"]["ingress"]
             for source in rule.get("from", [])
         ), "production must not trust every pod in its namespace"
+        assert prod_policy["spec"]["egress"] == [], \
+            "production must default-deny outbound traffic"
 
     def test_production_has_hpa_and_pdb(self, project_root):
         prod_dir = os.path.join(project_root, "deploy", "k8s", "overlays", "prod")
@@ -334,6 +339,10 @@ class TestDeploymentRuntimeArgs:
             )
         )
         assert helm_prod["networkPolicy"]["allowSameNamespace"] is False
+        assert helm_prod["networkPolicy"]["egress"] == {
+            "enabled": True,
+            "rules": [],
+        }
         assert helm_prod["image"]["requireDigest"] is True
         assert helm_prod["topologySpread"]["enabled"] is True
         assert helm_prod["topologySpread"]["whenUnsatisfiable"] == \

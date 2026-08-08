@@ -46,6 +46,10 @@ helm upgrade --install triton deploy/helm/triton \
 `--model-repository=/models` 같은 서버 플래그만 나열합니다. 다른 이미지를 쓸 때는 그
 이미지가 같은 entrypoint 계약을 제공하는지 배포 전에 확인합니다.
 
+prod values는 `networkPolicy.egress.enabled=true`, `rules=[]`로 outbound traffic을 기본
+차단합니다. cloud model repository, Redis cache, OTel을 사용할 때는 조직 CNI 형식에 맞는
+목적지와 port만 `networkPolicy.egress.rules`에 추가합니다.
+
 staging/prod는 `explicit`와 `--load-model=*`를 함께 사용합니다. `explicit`만 지정하면
 시작 시 아무 모델도 로드되지 않으므로, 저장소 전체가 배포 승인 단위인 환경에서만 이
 조합을 사용합니다. 모델을 개별 승인하는 조직은 `--load-model=*`를 제거하고 배포 파이프라인의

@@ -8,6 +8,8 @@ spec:
       app: triton-server
   policyTypes:
     - Ingress
+    - Egress
+  egress: []
   ingress:
     - from:
         - namespaceSelector:
