@@ -29,7 +29,9 @@ Prometheus rule, shell 문법을 검사합니다. 제출 전 최소 검증은 �
 ./scripts/validate.sh
 pytest tests/
 ruff check models/ client/ tests/ --select E,W,F --ignore E501
-helm lint deploy/helm/triton -f deploy/helm/triton/values.prod.yaml
+helm lint deploy/helm/triton \
+  -f deploy/helm/triton/values.prod.yaml \
+  --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000
 kustomize build deploy/k8s/overlays/prod >/dev/null
 promtool check config monitoring/prometheus/scrape_config.yml
 promtool check rules monitoring/prometheus/triton_rules.yml
@@ -39,6 +41,8 @@ TRITON_IMAGE=triton-server:validation GRAFANA_ADMIN_PASSWORD=local docker compos
 
 `pytest tests/`는 서버가 필요 없는 suite를 실행하고 smoke/integration은 skip합니다. 로컬
 Triton에 실제 요청을 보내려면 대상 디렉터리와 `--run-live`를 함께 지정합니다.
+Markdown만 바꾼 PR도 CI 대상이며 내부 파일 링크와 닫히지 않은 code fence를 config suite에서
+검사합니다.
 
 GitHub Actions의 외부 `uses:`는 release tag가 아니라 40자리 commit SHA로 고정합니다. 사람이
 버전을 알아볼 수 있도록 같은 줄에 `# v4`처럼 tag를 주석으로 남기고, 버전 갱신 PR에서는

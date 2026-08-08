@@ -20,6 +20,7 @@ on:
       - 'monitoring/**'
       - '.github/**'
       - 'requirements*.txt'
+      - '**/*.md'
 
 jobs:
   validate-configs:

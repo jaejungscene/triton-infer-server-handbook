@@ -540,6 +540,7 @@ class TestReleaseWorkflow:
         ):
             assert command in workflow, f"PR CI does not run {command}"
         assert "- 'monitoring/**'" in workflow
+        assert "- '**/*.md'" in workflow
 
     def test_pr_ci_runs_offline_unit_suites(self, project_root):
         workflow_path = os.path.join(
