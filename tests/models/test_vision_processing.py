@@ -59,3 +59,35 @@ def test_postprocess_is_batched_class_aware_and_recovers_scale(project_root):
     np.testing.assert_allclose(boxes[0, :2], [[10, 10, 110, 110], [10, 10, 110, 110]])
     np.testing.assert_allclose(scores[0, :2], [0.9, 0.7])
     assert class_ids[0].tolist() == [1, 2, -1, -1]
+
+
+def test_ensemble_template_preprocessor_resizes_to_declared_shape(project_root):
+    model = _load_model(
+        project_root,
+        "models/_templates/ensemble_pipeline/preprocessor/1/model.py",
+        "ensemble_preprocessor_template",
+    )
+    images = np.full((2, 32, 48, 3), 255, dtype=np.uint8)
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
+    output = model.preprocess_batch(images, 224, 224, mean, std)
+
+    assert output.shape == (2, 3, 224, 224)
+    assert output.dtype == np.float32
+    assert output.flags.c_contiguous
+    np.testing.assert_allclose(output[0, :, 0, 0], (1.0 - mean) / std)
+
+
+def test_ensemble_template_postprocessor_applies_stable_softmax(project_root):
+    model = _load_model(
+        project_root,
+        "models/_templates/ensemble_pipeline/postprocessor/1/model.py",
+        "ensemble_postprocessor_template",
+    )
+    logits = np.array([[1000.0, 1001.0, 1002.0]], dtype=np.float32)
+
+    output = model.postprocess_batch(logits, "softmax")
+
+    np.testing.assert_allclose(output.sum(axis=-1), [1.0])
+    assert output.argmax(axis=-1).tolist() == [2]
