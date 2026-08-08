@@ -53,6 +53,21 @@ idle timeout에 공통 적용됩니다. timeout이나 오류가 발생하면 해
 stream은 취소합니다. 한 streaming client instance에서는 stream을 직렬화하므로 높은
 동시성이 필요하면 worker별 client를 생성합니다.
 
+`stream_infer_async`는 정상 token callback과 오류를 섞지 않습니다. 반환된 `Future`의
+`result()`를 호출하면 성공 시 `None`, 실패 시 streaming 예외를 받습니다. UI 정리처럼
+즉시 오류 처리가 필요하면 `error_callback`도 지정하되 callback만 믿고 Future를 버리지
+않습니다.
+
+```python
+completion = client.stream_infer_async(
+    "decoupled_streaming",
+    "Hello",
+    callback=on_token,
+    error_callback=on_error,
+)
+completion.result(timeout=60)
+```
+
 `TritonAsyncClient`는 executor wrapper가 아니라 `tritonclient.grpc.aio` transport를 사용하므로
 task 취소가 진행 중인 RPC에 전달됩니다. 한 event loop 안에서 사용하고 `async with` 또는
 `await client.close()`로 channel을 닫습니다. Triton 24.08의 AsyncIO API는 beta이므로 client
