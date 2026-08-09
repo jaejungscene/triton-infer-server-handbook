@@ -2,7 +2,7 @@
   "_metadata": {
     "latency_unit": "milliseconds",
     "source_latency_unit": "microseconds",
-    "triton_image": "nvcr.io/nvidia/tritonserver:24.08-py3",
+    "triton_image": "nvcr.io/nvidia/tritonserver:24.08-py3@sha256:0b6a7449ea6a46fd167376d40418b169ed82cd36addc6f6c56fe2cbda4294e13",
     "profile": "tests/perf/profiles.json",
     "note": "Example floors. Recalibrate with these versioned workloads on the dedicated runner before production enforcement."
   },

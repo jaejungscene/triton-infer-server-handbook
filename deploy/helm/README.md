@@ -25,11 +25,11 @@ helm install triton deploy/helm/triton \
   -f deploy/helm/triton/values.staging.yaml \
   --namespace triton
 
-# prod 환경 (CI가 발행한 40자리 commit SHA 고정)
+# prod 환경 (CI가 검증한 registry digest 고정)
 helm upgrade --install triton deploy/helm/triton \
   -f deploy/helm/triton/values.prod.yaml \
   --set image.repository=ghcr.io/your-org/triton-infer-server-handbook \
-  --set image.tag=<40-character-commit-sha> \
+  --set image.digest=sha256:<64-hex-characters> \
   --namespace triton
 ```
 
@@ -45,6 +45,10 @@ helm upgrade --install triton deploy/helm/triton \
 `ENTRYPOINT ["tritonserver"]`에 전달됩니다. 따라서 실행 파일 이름을 반복하지 않고
 `--model-repository=/models` 같은 서버 플래그만 나열합니다. 다른 이미지를 쓸 때는 그
 이미지가 같은 entrypoint 계약을 제공하는지 배포 전에 확인합니다.
+
+prod values는 `networkPolicy.egress.enabled=true`, `rules=[]`로 outbound traffic을 기본
+차단합니다. cloud model repository, Redis cache, OTel을 사용할 때는 조직 CNI 형식에 맞는
+목적지와 port만 `networkPolicy.egress.rules`에 추가합니다.
 
 staging/prod는 `explicit`와 `--load-model=*`를 함께 사용합니다. `explicit`만 지정하면
 시작 시 아무 모델도 로드되지 않으므로, 저장소 전체가 배포 승인 단위인 환경에서만 이
@@ -99,11 +103,11 @@ helm status triton -n triton
 # 설정값 확인
 helm get values triton -n triton
 
-# commit SHA image로 교체 (무중단 롤링 업데이트)
+# immutable digest image로 교체 (무중단 롤링 업데이트)
 helm upgrade triton deploy/helm/triton \
   -f deploy/helm/triton/values.prod.yaml \
   --set image.repository=ghcr.io/your-org/triton-infer-server-handbook \
-  --set image.tag=<40-character-commit-sha> \
+  --set image.digest=sha256:<64-hex-characters> \
   --namespace triton
 
 # 이전 버전으로 롤백

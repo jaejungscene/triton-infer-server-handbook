@@ -1,34 +1,54 @@
-"""
-Ensemble Pipeline — Postprocessor (Python Backend)
+"""Explicit postprocessing template for classification-style ensemble outputs."""
 
-추론 결과 후처리: softmax, argmax, label 매핑 등
-"""
+import json
 
 import numpy as np
 import triton_python_backend_utils as pb_utils
 
 
+def postprocess_batch(raw_output, mode):
+    if raw_output.ndim < 2:
+        raise ValueError(
+            f"RAW_OUTPUT must include batch and feature dimensions, got {raw_output.shape}"
+        )
+    if not np.isfinite(raw_output).all():
+        raise ValueError("RAW_OUTPUT contains NaN or infinite values")
+    values = raw_output.astype(np.float32, copy=False)
+    if mode == "identity":
+        return values
+    if mode != "softmax":
+        raise ValueError(f"unsupported postprocess mode: {mode}")
+
+    shifted = values - np.max(values, axis=-1, keepdims=True)
+    exponentials = np.exp(shifted)
+    return (exponentials / np.sum(exponentials, axis=-1, keepdims=True)).astype(
+        np.float32
+    )
+
+
 class TritonPythonModel:
     def initialize(self, args):
-        # 필요 시 label 매핑 파일 로드
-        # self.labels = json.load(open("labels.json"))
-        pass
+        model_config = json.loads(args["model_config"])
+        parameters = model_config.get("parameters", {})
+        self.mode = parameters.get("mode", {}).get("string_value", "softmax")
+        if self.mode not in {"identity", "softmax"}:
+            raise ValueError(f"unsupported postprocess mode: {self.mode}")
 
     def execute(self, requests):
         responses = []
         for request in requests:
-            raw_output = pb_utils.get_input_tensor_by_name(request, "RAW_OUTPUT")
-            result = raw_output.as_numpy()
-
-            # 후처리 로직 구현
-            # 예: softmax → argmax
-            # exp_result = np.exp(result - np.max(result, axis=-1, keepdims=True))
-            # probabilities = exp_result / np.sum(exp_result, axis=-1, keepdims=True)
-
-            output_tensor = pb_utils.Tensor("FINAL_OUTPUT", result.astype(np.float32))
-            responses.append(pb_utils.InferenceResponse(output_tensors=[output_tensor]))
-
+            try:
+                raw_output = pb_utils.get_input_tensor_by_name(request, "RAW_OUTPUT")
+                if raw_output is None:
+                    raise ValueError("missing required input RAW_OUTPUT")
+                output = postprocess_batch(raw_output.as_numpy(), self.mode)
+                responses.append(
+                    pb_utils.InferenceResponse(
+                        output_tensors=[pb_utils.Tensor("FINAL_OUTPUT", output)]
+                    )
+                )
+            except (TypeError, ValueError) as error:
+                responses.append(
+                    pb_utils.InferenceResponse(error=pb_utils.TritonError(str(error)))
+                )
         return responses
-
-    def finalize(self):
-        pass

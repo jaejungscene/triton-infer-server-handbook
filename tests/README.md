@@ -40,7 +40,7 @@ docker run --rm \
   --add-host host.docker.internal:host-gateway \
   -e TRITON_URL=host.docker.internal:8000 \
   -v "$PWD:/workspace" -w /workspace \
-  nvcr.io/nvidia/tritonserver:24.08-py3-sdk \
+  nvcr.io/nvidia/tritonserver:24.08-py3-sdk@sha256:af34153227000b64d1ed4faf9612570a44d414ab8aa0e1dc143f18c19d71a5a7 \
   ./tests/perf/run_perf_analyzer.sh
 ```
 

@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from collections.abc import Callable, Iterator
+from concurrent.futures import Future
 from queue import Empty, Queue
 
 import numpy as np
 
 from .base import TritonConfig, grpc_tls_kwargs
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class TritonStreamingClient:
@@ -162,10 +166,12 @@ class TritonStreamingClient:
         prompt: str,
         max_tokens: int = 128,
         callback: Callable[[str, bool], None] | None = None,
+        error_callback: Callable[[Exception], None] | None = None,
         model_version: str = "",
-    ) -> threading.Thread:
-        """Consume the template stream on a worker thread and return its handle."""
+    ) -> Future[None]:
+        """Consume a stream on a worker and expose completion or failure as a Future."""
         token_callback = callback or (lambda token, is_final: None)
+        completion: Future[None] = Future()
 
         def consume():
             try:
@@ -174,12 +180,18 @@ class TritonStreamingClient:
                 ):
                     token_callback(token, False)
                 token_callback("", True)
+                completion.set_result(None)
             except Exception as exc:
-                token_callback(f"ERROR: {exc}", True)
+                if error_callback is not None:
+                    try:
+                        error_callback(exc)
+                    except Exception:
+                        _LOGGER.exception("Streaming error callback failed")
+                completion.set_exception(exc)
 
         thread = threading.Thread(target=consume, daemon=True)
         thread.start()
-        return thread
+        return completion
 
     def close(self):
         if self._closed:

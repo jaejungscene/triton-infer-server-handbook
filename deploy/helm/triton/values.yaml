@@ -6,6 +6,8 @@
 image:
   repository: triton-server
   tag: local
+  digest: ""
+  requireDigest: false
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -64,6 +66,9 @@ service:
 networkPolicy:
   enabled: false
   allowSameNamespace: true
+  egress:
+    enabled: false
+    rules: []
   ingressNamespaceSelector:
     kubernetes.io/metadata.name: ingress-nginx
   monitoringNamespaceSelector:

@@ -16,7 +16,7 @@
       "targets": [
         {
           "expr": "sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m]))",
-          "legendFormat": "{{ model }}"
+          "legendFormat": "{{ environment }} / {{ model }} v{{ version }}"
         }
       ]
     },
@@ -26,12 +26,12 @@
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "targets": [
         {
-          "expr": "sum by (environment, model, version) (rate(nv_inference_request_duration_us{environment=~\"$environment\"}[5m])) / sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m])) / 1000",
-          "legendFormat": "request {{ model }} v{{ version }}"
+          "expr": "(sum by (environment, model, version) (rate(nv_inference_request_duration_us{environment=~\"$environment\"}[5m])) / sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m])) / 1000) and on (environment, model, version) sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m])) >= 0.1",
+          "legendFormat": "{{ environment }} / request {{ model }} v{{ version }}"
         },
         {
-          "expr": "sum by (environment, model, version) (rate(nv_inference_queue_duration_us{environment=~\"$environment\"}[5m])) / sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m])) / 1000",
-          "legendFormat": "queue {{ model }} v{{ version }}"
+          "expr": "(sum by (environment, model, version) (rate(nv_inference_queue_duration_us{environment=~\"$environment\"}[5m])) / sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m])) / 1000) and on (environment, model, version) sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m])) >= 0.1",
+          "legendFormat": "{{ environment }} / queue {{ model }} v{{ version }}"
         }
       ]
     },
@@ -42,11 +42,11 @@
       "targets": [
         {
           "expr": "sum by (environment, model, version) (rate(nv_inference_count{environment=~\"$environment\"}[5m]))",
-          "legendFormat": "inference {{ model }}"
+          "legendFormat": "{{ environment }} / inference {{ model }} v{{ version }}"
         },
         {
           "expr": "sum by (environment, model, version) (rate(nv_inference_exec_count{environment=~\"$environment\"}[5m]))",
-          "legendFormat": "execution {{ model }}"
+          "legendFormat": "{{ environment }} / execution {{ model }} v{{ version }}"
         }
       ]
     },
@@ -57,7 +57,7 @@
       "targets": [
         {
           "expr": "nv_gpu_utilization{environment=~\"$environment\"} * 100",
-          "legendFormat": "GPU {{ gpu_uuid }}"
+          "legendFormat": "{{ environment }} / GPU {{ gpu_uuid }}"
         }
       ]
     },
@@ -68,7 +68,7 @@
       "targets": [
         {
           "expr": "nv_gpu_memory_used_bytes{environment=~\"$environment\"} / nv_gpu_memory_total_bytes{environment=~\"$environment\"} * 100",
-          "legendFormat": "GPU {{ gpu_uuid }}"
+          "legendFormat": "{{ environment }} / GPU {{ gpu_uuid }}"
         }
       ]
     },
@@ -78,8 +78,8 @@
       "gridPos": {"h": 4, "w": 6, "x": 0, "y": 16},
       "targets": [
         {
-          "expr": "sum by (environment, model, version) (rate(nv_cache_num_hits_per_model{environment=~\"$environment\"}[5m])) / (sum by (environment, model, version) (rate(nv_cache_num_hits_per_model{environment=~\"$environment\"}[5m])) + sum by (environment, model, version) (rate(nv_cache_num_misses_per_model{environment=~\"$environment\"}[5m])))",
-          "legendFormat": "{{ model }}"
+          "expr": "(sum by (environment, model, version) (rate(nv_cache_num_hits_per_model{environment=~\"$environment\"}[5m])) / (sum by (environment, model, version) (rate(nv_cache_num_hits_per_model{environment=~\"$environment\"}[5m])) + sum by (environment, model, version) (rate(nv_cache_num_misses_per_model{environment=~\"$environment\"}[5m])))) and on (environment, model, version) (sum by (environment, model, version) (rate(nv_cache_num_hits_per_model{environment=~\"$environment\"}[5m])) + sum by (environment, model, version) (rate(nv_cache_num_misses_per_model{environment=~\"$environment\"}[5m]))) > 0",
+          "legendFormat": "{{ environment }} / {{ model }} v{{ version }}"
         }
       ]
     },
@@ -89,8 +89,8 @@
       "gridPos": {"h": 4, "w": 6, "x": 6, "y": 16},
       "targets": [
         {
-          "expr": "sum by (environment, model, version) (rate(nv_inference_request_failure{environment=~\"$environment\"}[5m])) / (sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m])) + sum by (environment, model, version) (rate(nv_inference_request_failure{environment=~\"$environment\"}[5m])))",
-          "legendFormat": "{{ model }}"
+          "expr": "(sum by (environment, model, version) (rate(nv_inference_request_failure{environment=~\"$environment\"}[5m])) / (sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m])) + sum by (environment, model, version) (rate(nv_inference_request_failure{environment=~\"$environment\"}[5m])))) and on (environment, model, version) (sum by (environment, model, version) (rate(nv_inference_request_success{environment=~\"$environment\"}[5m])) + sum by (environment, model, version) (rate(nv_inference_request_failure{environment=~\"$environment\"}[5m]))) >= 0.1",
+          "legendFormat": "{{ environment }} / {{ model }} v{{ version }}"
         }
       ]
     }

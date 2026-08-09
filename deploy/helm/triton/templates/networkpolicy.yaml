@@ -11,6 +11,17 @@ spec:
       {{- include "triton.selectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
+    {{- if .Values.networkPolicy.egress.enabled }}
+    - Egress
+    {{- end }}
+  {{- if .Values.networkPolicy.egress.enabled }}
+  {{- if .Values.networkPolicy.egress.rules }}
+  egress:
+    {{- toYaml .Values.networkPolicy.egress.rules | nindent 4 }}
+  {{- else }}
+  egress: []
+  {{- end }}
+  {{- end }}
   ingress:
     {{- if .Values.networkPolicy.allowSameNamespace }}
     - from:

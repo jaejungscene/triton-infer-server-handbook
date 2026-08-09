@@ -99,6 +99,11 @@ staging/prod의 NetworkPolicy는 ingress controller가 `ingress-nginx`, Promethe
 `network_policy.yaml`의 selector를 먼저 바꾸십시오. 사용 중인 CNI가 NetworkPolicy를
 지원하는지와 ingress controller가 host network를 쓰는지도 staging에서 확인해야 합니다.
 
+prod는 기본 image-bundled model repository와 local cache 계약에 맞춰 egress도 default deny합니다.
+S3/GCS/Azure repository, Redis cache, OTel collector를 활성화하면 DNS와 해당 endpoint의
+namespaceSelector/ipBlock·port만 별도 egress rule로 허용합니다. 임시로 `0.0.0.0/0` 전체를
+열기보다 staging에서 실제 목적지와 CNI의 DNS 동작을 확인한 뒤 같은 rule을 승격합니다.
+
 prod와 multi-node HPA는 Kubernetes Metrics Server만으로 동작하는 CPU utilization을 안전한
 기본선으로 사용하고, 5분 scale-down 안정화로 GPU 모델 cold start 중 축소 진동을 줄입니다.
 GPU 사용률이나 Triton queue time으로 확장하려면 Prometheus Adapter/KEDA가 노출하는 metric

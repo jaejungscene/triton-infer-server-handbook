@@ -1,7 +1,7 @@
 # =============================================================================
 # Ensemble Pipeline — Postprocessor config.pbtxt
 # =============================================================================
-# Python backend로 후처리 (NMS, argmax, label 매핑 등)
+# Python backend로 classification logits에 softmax 적용
 # =============================================================================
 
 name: "postprocessor"
@@ -35,3 +35,6 @@ instance_group [
     kind: KIND_CPU
   }
 ]
+
+# 출력이 이미 확률이면 "identity"로 바꿉니다.
+parameters: { key: "mode" value: { string_value: "softmax" } }

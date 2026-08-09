@@ -2,8 +2,11 @@
 # Production 환경 오버라이드
 # 사용: helm upgrade --install triton deploy/helm/triton \
 #         -f deploy/helm/triton/values.prod.yaml \
-#         --set image.tag=sha-abc1234
+#         --set image.digest=sha256:<64-hex-characters>
 # ============================================================
+
+image:
+  requireDigest: true
 
 replicaCount: 3
 
@@ -43,6 +46,9 @@ pdb:
 networkPolicy:
   enabled: true
   allowSameNamespace: false
+  egress:
+    enabled: true
+    rules: []
 
 topologySpread:
   enabled: true

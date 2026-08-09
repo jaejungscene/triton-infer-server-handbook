@@ -299,7 +299,10 @@ class TestDeploymentRuntimeArgs:
 
             policy = self._load_yaml(os.path.join(overlay_dir, "network_policy.yaml"))
             assert policy["kind"] == "NetworkPolicy"
-            assert policy["spec"]["policyTypes"] == ["Ingress"]
+            expected_policy_types = (
+                ["Ingress", "Egress"] if overlay == "prod" else ["Ingress"]
+            )
+            assert policy["spec"]["policyTypes"] == expected_policy_types
             assert policy["spec"]["podSelector"]["matchLabels"]["app"] == \
                 "triton-server"
 
@@ -311,6 +314,8 @@ class TestDeploymentRuntimeArgs:
             for rule in prod_policy["spec"]["ingress"]
             for source in rule.get("from", [])
         ), "production must not trust every pod in its namespace"
+        assert prod_policy["spec"]["egress"] == [], \
+            "production must default-deny outbound traffic"
 
     def test_production_has_hpa_and_pdb(self, project_root):
         prod_dir = os.path.join(project_root, "deploy", "k8s", "overlays", "prod")
@@ -334,6 +339,11 @@ class TestDeploymentRuntimeArgs:
             )
         )
         assert helm_prod["networkPolicy"]["allowSameNamespace"] is False
+        assert helm_prod["networkPolicy"]["egress"] == {
+            "enabled": True,
+            "rules": [],
+        }
+        assert helm_prod["image"]["requireDigest"] is True
         assert helm_prod["topologySpread"]["enabled"] is True
         assert helm_prod["topologySpread"]["whenUnsatisfiable"] == \
             "DoNotSchedule"
@@ -464,6 +474,19 @@ class TestDeploymentRuntimeArgs:
         assert "tritonserver" not in triton["command"]
         assert triton["pull_policy"] == "always"
 
+    def test_helm_production_requires_a_valid_image_digest(self, project_root):
+        chart_dir = os.path.join(project_root, "deploy", "helm", "triton")
+        deployment_path = os.path.join(chart_dir, "templates", "deployment.yaml")
+        with open(deployment_path) as deployment_file:
+            deployment = deployment_file.read()
+
+        assert "image.requireDigest=true" in deployment
+        assert 'regexMatch "^sha256:[0-9a-f]{64}$"' in deployment
+        assert (
+            'image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"'
+            in deployment
+        )
+
     def test_development_compose_environment_controls_are_effective(self, project_root):
         compose = self._load_yaml(
             os.path.join(project_root, "deploy", "docker", "docker-compose.yml")
@@ -517,6 +540,7 @@ class TestReleaseWorkflow:
         ):
             assert command in workflow, f"PR CI does not run {command}"
         assert "- 'monitoring/**'" in workflow
+        assert "- '**/*.md'" in workflow
 
     def test_pr_ci_runs_offline_unit_suites(self, project_root):
         workflow_path = os.path.join(
@@ -546,14 +570,21 @@ class TestReleaseWorkflow:
         with open(workflow_path) as workflow_file:
             workflow = workflow_file.read()
 
+        assert "./scripts/build.sh --env prod --clean" in workflow
+        assert "./scripts/build.sh --env dev --clean" not in workflow
         assert "- 'client/**'" in workflow
         assert "- 'tests/**'" in workflow
         assert "--cache-config=local,size=16777216" in workflow
         assert "id: build" in workflow
         assert "push: true" in workflow
-        assert "${{ env.IMAGE_NAME }}:${{ github.sha }}" in workflow
+        assert "${{ env.IMAGE_NAME }}:candidate-${{ github.sha }}" in workflow
         assert "@${{ steps.build.outputs.digest }}" in workflow
         assert workflow.count("uses: docker/build-push-action@") == 1
+        assert "docker buildx imagetools create" in workflow
+        assert 'test "${PROMOTED_DIGEST}" = "${CANDIDATE_DIGEST}"' in workflow
+        assert workflow.index("- name: Run smoke tests") < workflow.index(
+            "- name: Promote tested digest to release tag"
+        )
 
     def test_deploy_workflows_pin_the_resolved_digest(self, project_root):
         for filename in ("cd-staging.yml", "cd-production.yml"):
@@ -668,6 +699,31 @@ class TestImmutableModelRelease:
             ignore_rules = dockerignore_content.read()
         assert "!model_repository/**" in ignore_rules
 
+    def test_triton_runtime_and_perf_images_are_digest_pinned(self, project_root):
+        digest_reference = re.compile(
+            r"nvcr\.io/nvidia/tritonserver:24\.08-py3(?:-sdk)?@sha256:[0-9a-f]{64}"
+        )
+        for relative_path in (
+            "deploy/docker/Dockerfile",
+            "deploy/docker/Dockerfile.converter",
+            "deploy/docker/docker-compose.yml",
+            ".env.dev",
+            ".github/workflows/perf-benchmark.yml",
+        ):
+            path = os.path.join(project_root, relative_path)
+            with open(path) as source_file:
+                source = source_file.read()
+            assert digest_reference.search(source), f"Unpinned Triton image: {relative_path}"
+
+        for dockerfile_name in ("Dockerfile", "Dockerfile.converter"):
+            path = os.path.join(
+                project_root, "deploy", "docker", dockerfile_name
+            )
+            with open(path) as dockerfile:
+                source = dockerfile.read()
+            assert "ARG TRITON_IMAGE=" in source
+            assert "FROM ${TRITON_IMAGE}" in source
+
     def test_ci_smoke_tests_the_bundled_repository(self, project_root):
         workflow_path = os.path.join(
             project_root, ".github", "workflows", "ci-build-test.yml"
@@ -713,6 +769,8 @@ class TestImmutableModelRelease:
         assert values["image"] == {
             "repository": "triton-server",
             "tag": "local",
+            "digest": "",
+            "requireDigest": False,
             "pullPolicy": "IfNotPresent",
         }
         assert values["persistence"]["enabled"] is False

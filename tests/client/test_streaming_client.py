@@ -48,6 +48,7 @@ class _FakeResult:
 
 class _FakeInferenceServerClient:
     emit_responses = True
+    emit_error = False
     last_request = None
     last_headers = None
 
@@ -60,6 +61,9 @@ class _FakeInferenceServerClient:
 
     def async_stream_infer(self, **kwargs):
         type(self).last_request = kwargs
+        if type(self).emit_error:
+            self.callback(None, RuntimeError("backend unavailable"))
+            return
         if not type(self).emit_responses:
             return
         self.callback(_FakeResult(np.array([[b"token"]], dtype=object)), None)
@@ -84,6 +88,7 @@ def fake_grpc_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "tritonclient", tritonclient_module)
     monkeypatch.setitem(sys.modules, "tritonclient.grpc", grpc_module)
     _FakeInferenceServerClient.emit_responses = True
+    _FakeInferenceServerClient.emit_error = False
     _FakeInferenceServerClient.last_request = None
     _FakeInferenceServerClient.last_headers = None
 
@@ -126,4 +131,43 @@ def test_stream_fails_after_idle_timeout():
     with pytest.raises(TimeoutError, match="No streaming response"):
         list(client.stream_infer("decoupled_streaming", "hello"))
 
+    client.close()
+
+
+def test_async_stream_reports_completion_without_encoding_errors_as_tokens():
+    client = TritonStreamingClient(TritonConfig(timeout=1))
+    tokens = []
+    errors = []
+
+    success = client.stream_infer_async(
+        "decoupled_streaming",
+        "hello",
+        callback=lambda token, final: tokens.append((token, final)),
+        error_callback=errors.append,
+    )
+
+    assert success.result(timeout=1) is None
+    assert tokens == [("token", False), ("", True)]
+    assert errors == []
+    client.close()
+
+
+def test_async_stream_exposes_backend_failure_as_future_exception():
+    _FakeInferenceServerClient.emit_error = True
+    client = TritonStreamingClient(TritonConfig(timeout=1))
+    tokens = []
+    errors = []
+
+    completion = client.stream_infer_async(
+        "decoupled_streaming",
+        "hello",
+        callback=lambda token, final: tokens.append((token, final)),
+        error_callback=errors.append,
+    )
+
+    with pytest.raises(RuntimeError, match="Streaming inference failed"):
+        completion.result(timeout=1)
+    assert tokens == []
+    assert len(errors) == 1
+    assert "Streaming inference failed" in str(errors[0])
     client.close()
