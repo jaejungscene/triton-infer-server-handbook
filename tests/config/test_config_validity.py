@@ -609,6 +609,21 @@ class TestReleaseWorkflow:
             assert 'IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}' in workflow
             assert 'kustomize edit set image "triton-server=${IMAGE_REF}"' in workflow
 
+    def test_production_verifies_the_runtime_image_digest(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "cd-production.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "- name: Verify deployed image digest" in workflow
+        assert '"${DEPLOYMENT_IMAGE}" != "${IMAGE_REF}"' in workflow
+        assert "containerStatuses" in workflow
+        assert '"${image_id}" != *@"${IMAGE_DIGEST}"' in workflow
+        assert workflow.index("- name: Verify deployed image digest") < workflow.index(
+            "- name: Smoke test"
+        )
+
     def test_perf_benchmark_uses_release_runtime_contract(self, project_root):
         workflow_path = os.path.join(
             project_root, ".github", "workflows", "perf-benchmark.yml"

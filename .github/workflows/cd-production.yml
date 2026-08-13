@@ -101,6 +101,7 @@ jobs:
             exit 1
           fi
           echo "IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "${GITHUB_ENV}"
+          echo "IMAGE_DIGEST=${DIGEST}" >> "${GITHUB_ENV}"
         env:
           RELEASE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag }}
 
@@ -143,6 +144,29 @@ jobs:
           kustomize build . | kubectl apply -f -
           echo "applied=true" >> "${GITHUB_OUTPUT}"
           kubectl rollout status deployment/triton-server -n production --timeout=600s
+
+      - name: Verify deployed image digest
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        run: |
+          DEPLOYMENT_IMAGE="$(kubectl get deployment/triton-server -n production \
+            -o jsonpath='{.spec.template.spec.containers[?(@.name=="triton")].image}')"
+          if [[ "${DEPLOYMENT_IMAGE}" != "${IMAGE_REF}" ]]; then
+            echo "Deployment image mismatch: expected ${IMAGE_REF}, got ${DEPLOYMENT_IMAGE}" >&2
+            exit 1
+          fi
+
+          POD_IMAGE_IDS="$(kubectl get pods -n production -l app=triton-server \
+            -o jsonpath='{range .items[*]}{.status.containerStatuses[?(@.name=="triton")].imageID}{"\n"}{end}')"
+          if [[ -z "${POD_IMAGE_IDS}" ]]; then
+            echo "No running triton container imageID was reported" >&2
+            exit 1
+          fi
+          while IFS= read -r image_id; do
+            if [[ "${image_id}" != *@"${IMAGE_DIGEST}" ]]; then
+              echo "Pod imageID mismatch: expected digest ${IMAGE_DIGEST}, got ${image_id}" >&2
+              exit 1
+            fi
+          done <<< "${POD_IMAGE_IDS}"
 
       # ── Post-deploy 검증 ──
       - name: Smoke test
