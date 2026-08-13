@@ -84,6 +84,14 @@ smoke test합니다. 성공한 뒤에만 동일 digest에 `<40자리 commit SHA>
 `main`이나 `latest` tag는 만들지 않습니다. 따라서 실패한 CI의 candidate는 production
 workflow가 찾는 release tag로 승격되지 않습니다.
 
+Staging workflow는 배포 직전 현재 Deployment의 immutable image reference를 기록합니다.
+새 image의 rollout, readiness 또는 integration test가 실패하면 `kubectl rollout undo`의
+revision 추정에 의존하지 않고 기록한 image를 다시 설정한 뒤 복구 rollout까지 확인합니다.
+최초 설치처럼 이전 Deployment가 없으면 자동 복구 대상이 없음을 실패 로그에 명시하며,
+운영자는 namespace를 정리하거나 검증된 release를 수동 배포해야 합니다. 이 자동 복구는
+image만 되돌리므로 ConfigMap, Secret, API contract를 함께 바꾸는 release는 이전 manifest를
+별도 GitOps revision으로 복원하는 절차가 필요합니다.
+
 성능 비교는 production deploy job 안에서 실행되지 않습니다. self-hosted GPU runner의
 `perf-benchmark.yml`을 주간 또는 수동으로 실행하고, 승인자는 배포할 image SHA와 같은 revision의
 결과 artifact를 확인합니다. 성능 회귀를 강제 gate로 쓸 조직은 이 결과를 production

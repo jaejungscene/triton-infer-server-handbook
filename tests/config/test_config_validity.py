@@ -635,6 +635,24 @@ class TestReleaseWorkflow:
             assert f"kubectl config use-context \"${{{variable}}}\"" in workflow
             assert f"kubectl config current-context)\" = \"${{{variable}}}\"" in workflow
 
+    def test_staging_restores_the_exact_previous_image_on_failure(
+        self, project_root
+    ):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "cd-staging.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "- name: Capture current staging image" in workflow
+        assert "steps.previous.outputs.exists == 'true'" in workflow
+        assert '"triton=${PREVIOUS_IMAGE}"' in workflow
+        assert 'test "${RESTORED_IMAGE}" = "${PREVIOUS_IMAGE}"' in workflow
+        assert "no previous deployment exists to restore" in workflow
+        assert workflow.index("- name: Restore previous staging image") < workflow.index(
+            "- name: Notify Slack (failure)"
+        )
+
     def test_composite_action_inputs_are_not_interpolated_in_shell(self, project_root):
         action_path = os.path.join(
             project_root, ".github", "actions", "triton-health-check", "action.yml"

@@ -84,13 +84,31 @@ jobs:
         env:
           KUBE_CONFIG_STAGING: ${{ secrets.KUBE_CONFIG_STAGING }}
 
+      - name: Capture current staging image
+        id: previous
+        run: |
+          if kubectl get deployment/triton-server -n staging > /dev/null 2>&1; then
+            PREVIOUS_IMAGE="$(kubectl get deployment/triton-server -n staging \
+              -o jsonpath='{.spec.template.spec.containers[?(@.name=="triton")].image}')"
+            if [[ -z "${PREVIOUS_IMAGE}" ]]; then
+              echo "Existing deployment does not contain the triton container" >&2
+              exit 1
+            fi
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "image=${PREVIOUS_IMAGE}" >> "${GITHUB_OUTPUT}"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Update image tag
         run: |
           cd deploy/k8s/overlays/staging
           kustomize edit set image "triton-server=${IMAGE_REF}"
 
       - name: Deploy to staging
+        id: deploy
         run: |
+          echo "applied=true" >> "${GITHUB_OUTPUT}"
           kustomize build deploy/k8s/overlays/staging | kubectl apply -f -
           kubectl rollout status deployment/triton-server -n staging --timeout=300s
 
@@ -116,6 +134,27 @@ jobs:
 
           cat /tmp/triton-port-forward.log
           exit 1
+
+      - name: Restore previous staging image
+        if: >-
+          ${{ failure() && steps.deploy.outputs.applied == 'true' &&
+              steps.previous.outputs.exists == 'true' }}
+        run: |
+          kubectl set image deployment/triton-server -n staging \
+            "triton=${PREVIOUS_IMAGE}"
+          kubectl rollout status deployment/triton-server -n staging --timeout=300s
+          RESTORED_IMAGE="$(kubectl get deployment/triton-server -n staging \
+            -o jsonpath='{.spec.template.spec.containers[?(@.name=="triton")].image}')"
+          test "${RESTORED_IMAGE}" = "${PREVIOUS_IMAGE}"
+        env:
+          PREVIOUS_IMAGE: ${{ steps.previous.outputs.image }}
+
+      - name: Report unavailable first-deploy rollback
+        if: >-
+          ${{ failure() && steps.deploy.outputs.applied == 'true' &&
+              steps.previous.outputs.exists != 'true' }}
+        run: |
+          echo "Staging verification failed and no previous deployment exists to restore." >&2
 
       - name: Notify Slack (success)
         if: success() && env.SLACK_WEBHOOK_URL != ''
