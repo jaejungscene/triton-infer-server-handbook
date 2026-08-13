@@ -24,6 +24,9 @@ class TritonPythonModel:
         responses = []
         for request in requests:
             input_tensor = pb_utils.get_input_tensor_by_name(request, "INPUT")
+            if input_tensor is None:
+                responses.append(self._error("Missing required input: INPUT"))
+                continue
             input_data = input_tensor.as_numpy()
 
             # -----------------------------------------------------------------
@@ -51,6 +54,11 @@ class TritonPythonModel:
             preprocessed = pb_utils.get_output_tensor_by_name(
                 preprocess_response, "PREPROCESSED"
             )
+            if preprocessed is None:
+                responses.append(
+                    self._error("Preprocessor response is missing PREPROCESSED")
+                )
+                continue
 
             # -----------------------------------------------------------------
             # Step 2: 조건 분기 (BLS의 핵심 장점)
@@ -83,6 +91,11 @@ class TritonPythonModel:
                 continue
 
             output = pb_utils.get_output_tensor_by_name(infer_response, "RAW_OUTPUT")
+            if output is None:
+                responses.append(
+                    self._error("Inferencer response is missing RAW_OUTPUT")
+                )
+                continue
             result = output.as_numpy()
 
             # -----------------------------------------------------------------
@@ -92,6 +105,10 @@ class TritonPythonModel:
             responses.append(pb_utils.InferenceResponse(output_tensors=[output_tensor]))
 
         return responses
+
+    @staticmethod
+    def _error(message):
+        return pb_utils.InferenceResponse(error=pb_utils.TritonError(message))
 
     def finalize(self):
         pass
