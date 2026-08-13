@@ -30,6 +30,8 @@ class _InferRequestedOutput:
 
 class _Result:
     def as_numpy(self, name):
+        if name == "MISSING":
+            return None
         return np.array([name], dtype=object)
 
 
@@ -100,3 +102,19 @@ def test_numpy_dtype_contract_includes_unsigned_and_rejects_unicode():
     assert numpy_to_triton_dtype(np.dtype(object)) == "BYTES"
     with pytest.raises(ValueError, match="Unsupported"):
         numpy_to_triton_dtype(np.dtype("U10"))
+
+
+def test_async_client_rejects_invalid_requests_and_incomplete_responses():
+    async def run_invalid_requests():
+        client = TritonAsyncClient()
+        try:
+            with pytest.raises(ValueError, match="input_data"):
+                await client.infer_numpy("model", {}, ["OUTPUT"])
+            with pytest.raises(RuntimeError, match="missing requested output"):
+                await client.infer_numpy(
+                    "model", {"INPUT": np.ones(1)}, ["MISSING"]
+                )
+        finally:
+            await client.close()
+
+    asyncio.run(run_invalid_requests())

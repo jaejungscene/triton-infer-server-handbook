@@ -2,7 +2,13 @@
 
 import numpy as np
 
-from .base import TritonConfig, grpc_tls_kwargs, numpy_to_triton_dtype
+from .base import (
+    TritonConfig,
+    collect_numpy_outputs,
+    grpc_tls_kwargs,
+    numpy_to_triton_dtype,
+    validate_numpy_request,
+)
 
 
 class TritonAsyncClient:
@@ -51,6 +57,7 @@ class TritonAsyncClient:
     ) -> dict[str, np.ndarray]:
         """Run one native asynchronous inference request."""
         self._ensure_open()
+        validate_numpy_request(model_name, input_data, output_names)
         inputs = []
         for name, data in input_data.items():
             infer_input = self._grpcclient.InferInput(
@@ -69,7 +76,7 @@ class TritonAsyncClient:
             client_timeout=self.config.timeout,
             model_version=model_version,
         )
-        return {name: result.as_numpy(name) for name in output_names}
+        return collect_numpy_outputs(result, output_names)
 
     async def close(self) -> None:
         if self._closed:
