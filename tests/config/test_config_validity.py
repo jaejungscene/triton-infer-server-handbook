@@ -305,6 +305,17 @@ class TestDeploymentRuntimeArgs:
             assert policy["spec"]["policyTypes"] == expected_policy_types
             assert policy["spec"]["podSelector"]["matchLabels"]["app"] == \
                 "triton-server"
+            external_sources = [
+                source
+                for rule in policy["spec"]["ingress"]
+                for source in rule.get("from", [])
+                if "namespaceSelector" in source
+            ]
+            assert external_sources
+            assert all(
+                source.get("podSelector", {}).get("matchLabels")
+                for source in external_sources
+            ), f"{overlay} external ingress must select trusted workloads"
 
         prod_policy = self._load_yaml(
             os.path.join(overlays_dir, "prod", "network_policy.yaml")
@@ -316,6 +327,22 @@ class TestDeploymentRuntimeArgs:
         ), "production must not trust every pod in its namespace"
         assert prod_policy["spec"]["egress"] == [], \
             "production must default-deny outbound traffic"
+
+    def test_helm_network_policy_selects_trusted_workloads(self, project_root):
+        values = self._load_yaml(
+            os.path.join(project_root, "deploy", "helm", "triton", "values.yaml")
+        )["networkPolicy"]
+        assert values["ingressPodSelector"]
+        assert values["monitoringPodSelector"]
+
+        template_path = os.path.join(
+            project_root, "deploy", "helm", "triton", "templates",
+            "networkpolicy.yaml"
+        )
+        with open(template_path) as template_file:
+            template = template_file.read()
+        assert ".Values.networkPolicy.ingressPodSelector" in template
+        assert ".Values.networkPolicy.monitoringPodSelector" in template
 
     def test_production_has_hpa_and_pdb(self, project_root):
         prod_dir = os.path.join(project_root, "deploy", "k8s", "overlays", "prod")

@@ -92,12 +92,14 @@ components:
 revision을 원자적으로 배치하고, rollout 전에 파일 checksum과 필수 artifact를 검증하는
 pipeline이 있어야 합니다. 빈 PVC를 연결하면 image 안 모델은 보이지 않습니다.
 
-staging/prod의 NetworkPolicy는 ingress controller가 `ingress-nginx`, Prometheus가
-`monitoring` namespace에 있다고 가정합니다. staging은 같은 namespace Pod의 직접 접근을
-허용하지만 prod는 허용하지 않으므로 내부 호출도 gateway를 통하거나 별도 허용 rule을
-명시해야 합니다. 실제 namespace가 다르면
-`network_policy.yaml`의 selector를 먼저 바꾸십시오. 사용 중인 CNI가 NetworkPolicy를
-지원하는지와 ingress controller가 host network를 쓰는지도 staging에서 확인해야 합니다.
+staging/prod의 NetworkPolicy는 ingress controller가 `ingress-nginx` namespace와
+`app.kubernetes.io/component=controller` label을, Prometheus가 `monitoring` namespace와
+`app.kubernetes.io/name=prometheus` label을 사용한다고 가정합니다. namespace와 Pod selector가
+동시에 일치해야 접근할 수 있습니다. staging은 같은 namespace Pod의 직접 접근을 허용하지만
+prod는 허용하지 않으므로 내부 호출도 gateway를 통하거나 별도 허용 rule을 명시해야 합니다.
+실제 namespace 또는 workload label이 다르면 `network_policy.yaml`의 두 selector를 함께
+바꾸십시오. 사용 중인 CNI가 NetworkPolicy를 지원하는지와 ingress controller가 host network를
+쓰는지도 staging에서 확인해야 합니다.
 
 prod는 기본 image-bundled model repository와 local cache 계약에 맞춰 egress도 default deny합니다.
 S3/GCS/Azure repository, Redis cache, OTel collector를 활성화하면 DNS와 해당 endpoint의
