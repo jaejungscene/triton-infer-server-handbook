@@ -135,7 +135,10 @@ p95/p99는 `perf_analyzer` 또는 trace backend에서 확인합니다. 요청량
 수집해도 staging 장애가 production 수치에 합산되지 않습니다. 모든 scrape target에는
 `service="triton"`과 `environment="staging|production"` label을 붙여야 합니다. alert는
 `service`를 안정적인 discovery 계약으로 사용하며, `TritonMetricsMissing`은 target 자체가
-5분 이상 사라진 경우를 `up == 0`과 별도로 감지합니다.
+5분 이상 사라진 경우를 `up == 0`과 별도로 감지합니다. 기본 rule은 필수 환경인
+`environment="production"`을 명시하므로 staging target이 남아 있어도 production target
+소실을 숨기지 않습니다. 필수 production 환경이 여러 개라면 환경별 rule을 생성하거나
+Prometheus rule template으로 기대 환경 목록을 관리합니다.
 
 배포 후:
 

@@ -90,8 +90,10 @@ kubectl describe pod -n "${NS}" "${POD}"
    warmup 문제일 가능성이 큽니다.
 2. `MetricsMissing`인데 inference가 정상이면 scrape target에 `service="triton"`,
    `environment="production"` label이 있는지 확인합니다.
-3. monitoring namespace에서 8002 접근이 NetworkPolicy와 CNI에 의해 허용되는지 확인합니다.
-4. 모든 Pod가 같은 digest에서 실패하고 직전 배포와 시각이 겹치면 full release rollback을
+3. staging target이 정상이어도 production target 소실 경보는 발생해야 합니다. 발생하지 않으면
+   배포한 rule이 `environment="production"`을 명시하는지 확인합니다.
+4. monitoring namespace에서 8002 접근이 NetworkPolicy와 CNI에 의해 허용되는지 확인합니다.
+5. 모든 Pod가 같은 digest에서 실패하고 직전 배포와 시각이 겹치면 full release rollback을
    우선합니다.
 
 ### HighErrorRate

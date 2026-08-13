@@ -88,16 +88,29 @@ tests:
               summary: Triton server is down
               description: Triton inference server is unreachable
 
-  - name: missing target triggers discovery alert
+  - name: staging target does not mask missing production target
     interval: 1m
-    input_series: []
+    input_series:
+      - series: 'up{environment="staging",instance="triton-staging:8002",service="triton"}'
+        values: '1x10'
     alert_rule_test:
       - eval_time: 8m
         alertname: TritonMetricsMissing
         exp_alerts:
           - exp_labels:
+              environment: production
               service: triton
               severity: critical
             exp_annotations:
-              summary: Triton metrics target is missing
-              description: No Triton scrape target has been discovered for at least 5 minutes
+              summary: Production Triton metrics target is missing
+              description: No production Triton scrape target has been discovered for at least 5 minutes
+
+  - name: discovered production target suppresses missing alert
+    interval: 1m
+    input_series:
+      - series: 'up{environment="production",instance="triton:8002",service="triton"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: TritonMetricsMissing
+        exp_alerts: []
