@@ -554,14 +554,20 @@ class TestReleaseWorkflow:
 
     def test_deployment_workflows_explicitly_enable_live_tests(self, project_root):
         workflow_expectations = {
-            "ci-build-test.yml": "pytest tests/smoke/ --run-live",
+            "ci-build-test.yml": (
+                "tests/smoke/",
+                "--run-live",
+            ),
             "cd-staging.yml": "pytest tests/integration/ --run-live",
             "cd-production.yml": "pytest tests/smoke/ --run-live",
         }
-        for filename, command in workflow_expectations.items():
+        for filename, commands in workflow_expectations.items():
             path = os.path.join(project_root, ".github", "workflows", filename)
             with open(path) as workflow_file:
-                assert command in workflow_file.read()
+                workflow = workflow_file.read()
+            if isinstance(commands, str):
+                commands = (commands,)
+            assert all(command in workflow for command in commands)
 
     def test_main_build_tests_the_published_digest(self, project_root):
         workflow_path = os.path.join(
@@ -574,7 +580,13 @@ class TestReleaseWorkflow:
         assert "./scripts/build.sh --env dev --clean" not in workflow
         assert "- 'client/**'" in workflow
         assert "- 'tests/**'" in workflow
-        assert "--cache-config=local,size=16777216" in workflow
+        assert "--model-control-mode=explicit" in workflow
+        assert "--load-model=*" in workflow
+        assert "--cache-config=local,size=67108864" in workflow
+        assert "--rate-limit=execution_count" in workflow
+        assert "tests/integration/test_text_classifier.py" in workflow
+        assert "tests/integration/test_cache.py" in workflow
+        assert "--triton-metrics-url http://localhost:8002" in workflow
         assert "id: build" in workflow
         assert "push: true" in workflow
         assert "${{ env.IMAGE_NAME }}:candidate-${{ github.sha }}" in workflow
@@ -582,7 +594,7 @@ class TestReleaseWorkflow:
         assert workflow.count("uses: docker/build-push-action@") == 1
         assert "docker buildx imagetools create" in workflow
         assert 'test "${PROMOTED_DIGEST}" = "${CANDIDATE_DIGEST}"' in workflow
-        assert workflow.index("- name: Run smoke tests") < workflow.index(
+        assert workflow.index("- name: Run release contract tests") < workflow.index(
             "- name: Promote tested digest to release tag"
         )
 
