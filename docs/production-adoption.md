@@ -54,6 +54,8 @@ GitHub의 `staging`, `production` Environment에는 다음 값을 각각 등록�
 
 production Environment에는 required reviewer를 설정하고, 두 kubeconfig credential은 해당
 namespace 배포에 필요한 최소 RBAC만 부여합니다.
+승인자가 확인할 source SHA, image digest, model revision, perf artifact와 사후 관찰 기록은
+[Production Release Evidence](release-evidence.md)의 형식으로 남깁니다.
 
 ```mermaid
 sequenceDiagram

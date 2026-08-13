@@ -223,6 +223,7 @@ triton-infer-server-handbook/
 |------|------|
 | [Triton 서빙 아키텍처](docs/architecture.md) | 요청 처리 경로, 모델 레포지토리 전략, serving 패턴, 관측성 |
 | [Production 도입 가이드](docs/production-adoption.md) | production 도입 단계, release checklist, rollback 기준 |
+| [Production Release Evidence](docs/release-evidence.md) | release identity, 역할, go/no-go 증거, 실패 시 복구 범위 |
 | [실무 시나리오](docs/scenarios.md) | 단일 모델, ensemble, GPU OOM, cache, LLM streaming, release 시나리오 |
 | [Production 장애 대응 Runbook](docs/runbook.md) | alert별 진단, 완화, digest 확인, rollback, 복구 판정 |
 
