@@ -586,7 +586,10 @@ class TestReleaseWorkflow:
                 "--run-live",
             ),
             "cd-staging.yml": "pytest tests/integration/ --run-live",
-            "cd-production.yml": "pytest tests/smoke/ --run-live",
+            "cd-production.yml": (
+                "tests/smoke/",
+                "--run-live",
+            ),
         }
         for filename, commands in workflow_expectations.items():
             path = os.path.join(project_root, ".github", "workflows", filename)
@@ -595,6 +598,21 @@ class TestReleaseWorkflow:
             if isinstance(commands, str):
                 commands = (commands,)
             assert all(command in workflow for command in commands)
+
+    def test_production_deploy_gates_on_required_model_and_cache(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "cd-production.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "requirements-integration.txt" in workflow
+        assert "tests/integration/test_text_classifier.py" in workflow
+        assert "tests/integration/test_cache.py" in workflow
+        assert '--triton-metrics-url "http://localhost:8002"' in workflow
+        assert workflow.index("tests/integration/test_cache.py") < workflow.index(
+            "- name: Auto-rollback on failure"
+        )
 
     def test_main_build_tests_the_published_digest(self, project_root):
         workflow_path = os.path.join(

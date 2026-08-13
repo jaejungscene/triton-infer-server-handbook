@@ -80,7 +80,10 @@ release 선택자이며, workflow는 registry에서 해당 tag의 digest를 해�
 release 단위로 표시합니다. branch 밖 commit이나 임의 tag는 production 입력으로 허용하지
 않습니다. rollout 직후에는 Deployment의 image reference뿐 아니라 선택된 모든 Triton Pod의
 runtime `imageID`가 이 digest와 같은지 확인합니다. 이 검증이 실패하면 smoke test로 넘어가지
-않고 자동 rollback 대상으로 처리합니다.
+않고 자동 rollback 대상으로 처리합니다. digest 검증 뒤에는 health endpoint뿐 아니라 필수
+`text_classifier`의 실제 output과 response-cache miss/hit counter 증가를 확인합니다. cluster의
+model load, metrics, cache 설정 중 하나라도 release 후보와 다르면 배포를 성공으로 선언하지
+않습니다.
 image build 단계는 먼저 `candidate-<40자리 commit SHA>` tag를 push하고 그 digest를 직접
 smoke test합니다. 성공한 뒤에만 동일 digest에 `<40자리 commit SHA>` release tag를 붙이며
 `main`이나 `latest` tag는 만들지 않습니다. 따라서 실패한 CI의 candidate는 production
