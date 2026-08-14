@@ -73,6 +73,11 @@ task 취소가 진행 중인 RPC에 전달됩니다. 한 event loop 안에서 �
 `await client.close()`로 channel을 닫습니다. Triton 24.08의 AsyncIO API는 beta이므로 client
 버전을 서버와 함께 고정하고 staging 부하 테스트를 통과한 뒤 적용합니다.
 
+HTTP, gRPC, asyncio의 `infer_numpy`는 같은 요청 계약을 사용합니다. 모델 이름, 입력 dictionary,
+output 목록은 비어 있을 수 없고 각 입력은 원소가 있는 NumPy 배열이어야 하며 output 이름은
+중복될 수 없습니다. Triton 응답에서 요청한 output이 빠졌거나 NumPy 배열이 아니면 부분 결과를
+반환하지 않고 요청 전체를 실패로 처리합니다.
+
 ```python
 async with TritonAsyncClient(config) as client:
     outputs = await client.infer_numpy(

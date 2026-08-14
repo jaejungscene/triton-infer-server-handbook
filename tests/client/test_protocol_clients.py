@@ -2,11 +2,16 @@ import sys
 import types
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from client.base import TritonConfig  # noqa: E402
+from client.base import (  # noqa: E402
+    TritonConfig,
+    collect_numpy_outputs,
+    validate_numpy_request,
+)
 import client.grpc_client as grpc_client_module  # noqa: E402
 import client.http_client as http_client_module  # noqa: E402
 
@@ -28,18 +33,44 @@ class _FakeProtocolClient:
 
     def infer(self, **kwargs):
         type(self).last_call = kwargs
-        return object()
+        return _Result()
 
     def close(self):
         pass
+
+
+class _InferInput:
+    def __init__(self, name, shape, datatype):
+        self.name = name
+        self.shape = shape
+        self.datatype = datatype
+
+    def set_data_from_numpy(self, data):
+        self.data = data
+
+
+class _InferRequestedOutput:
+    def __init__(self, name):
+        self.name = name
+
+
+class _Result:
+    def as_numpy(self, name):
+        if name == "MISSING":
+            return None
+        return np.array([name], dtype=object)
 
 
 @pytest.fixture
 def fake_protocol_modules(monkeypatch):
     http_module = types.ModuleType("tritonclient.http")
     http_module.InferenceServerClient = _FakeProtocolClient
+    http_module.InferInput = _InferInput
+    http_module.InferRequestedOutput = _InferRequestedOutput
     grpc_module = types.ModuleType("tritonclient.grpc")
     grpc_module.InferenceServerClient = _FakeProtocolClient
+    grpc_module.InferInput = _InferInput
+    grpc_module.InferRequestedOutput = _InferRequestedOutput
 
     tritonclient_module = types.ModuleType("tritonclient")
     tritonclient_module.http = http_module
@@ -125,3 +156,49 @@ def test_grpc_applies_deadline_headers_and_mtls_material(
     client.infer("model", [], [])
     assert _FakeProtocolClient.last_call["client_timeout"] == 9
     assert _FakeProtocolClient.last_call["headers"] == config.headers
+
+
+@pytest.mark.parametrize(
+    "client_type",
+    [
+        http_client_module.TritonHTTPClient,
+        grpc_client_module.TritonGRPCClient,
+    ],
+)
+def test_protocol_clients_validate_requests_and_complete_outputs(
+    client_type, fake_protocol_modules
+):
+    client = client_type(TritonConfig())
+    outputs = client.infer_numpy(
+        "model",
+        {"INPUT": np.array([[1]], dtype=np.int32)},
+        ["OUTPUT"],
+    )
+    assert outputs["OUTPUT"].tolist() == ["OUTPUT"]
+
+    with pytest.raises(ValueError, match="duplicates"):
+        client.infer_numpy("model", {"INPUT": np.ones(1)}, ["OUTPUT", "OUTPUT"])
+    with pytest.raises(RuntimeError, match="missing requested output"):
+        client.infer_numpy("model", {"INPUT": np.ones(1)}, ["MISSING"])
+
+
+def test_numpy_request_validation_rejects_malformed_payloads():
+    with pytest.raises(ValueError, match="model_name"):
+        validate_numpy_request("", {"INPUT": np.ones(1)}, ["OUTPUT"])
+    with pytest.raises(ValueError, match="input_data"):
+        validate_numpy_request("model", {}, ["OUTPUT"])
+    with pytest.raises(TypeError, match="NumPy"):
+        validate_numpy_request("model", {"INPUT": [1]}, ["OUTPUT"])
+    with pytest.raises(ValueError, match="must not be empty"):
+        validate_numpy_request("model", {"INPUT": np.array([])}, ["OUTPUT"])
+    with pytest.raises(ValueError, match="output_names"):
+        validate_numpy_request("model", {"INPUT": np.ones(1)}, [])
+
+
+def test_output_collection_rejects_non_array_values():
+    class InvalidResult:
+        def as_numpy(self, name):
+            return "not-an-array"
+
+    with pytest.raises(RuntimeError, match="not a NumPy array"):
+        collect_numpy_outputs(InvalidResult(), ["OUTPUT"])

@@ -21,6 +21,17 @@
 단일 replica의 explicit reload는 무중단이 아닙니다. 무중단 교체가 필요하면 새 Deployment나
 새 model name으로 먼저 load·warmup한 후 traffic을 전환하는 blue/green 방식을 사용합니다.
 
+model-control base URL은 credential이나 path가 없는 HTTP(S) origin만 허용합니다. 인증이
+필요하면 token을 인수로 전달하지 말고 `TRITON_AUTH_TOKEN` 환경변수로 주입합니다. 스크립트는
+권한이 `0600`인 임시 header 파일을 만들고 종료 시 제거하므로 token이 curl 명령행에 직접
+나타나지 않습니다. HTTPS는 curl의 기본 CA 검증을 유지하며 인증서 검증을 끄는 옵션은
+제공하지 않습니다.
+
+```bash
+TRITON_AUTH_TOKEN="$(secret-tool lookup service triton)" \
+  scripts/model_control/load.sh text_classifier https://triton.example.com 180
+```
+
 `build.sh`는 PyYAML로 manifest 전체를 검증하고 모든 선택 모델을 임시 디렉토리에 먼저
 복사한 뒤 성공한 경우에만 `model_repository`를 교체합니다. enabled source·required artifact가
 없거나 `target`과 `config.pbtxt`의 `name`이 다르거나 선택 결과가 0개면 기존 repository를

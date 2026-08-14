@@ -223,6 +223,7 @@ triton-infer-server-handbook/
 |------|------|
 | [Triton 서빙 아키텍처](docs/architecture.md) | 요청 처리 경로, 모델 레포지토리 전략, serving 패턴, 관측성 |
 | [Production 도입 가이드](docs/production-adoption.md) | production 도입 단계, release checklist, rollback 기준 |
+| [Production Release Evidence](docs/release-evidence.md) | release identity, 역할, go/no-go 증거, 실패 시 복구 범위 |
 | [실무 시나리오](docs/scenarios.md) | 단일 모델, ensemble, GPU OOM, cache, LLM streaming, release 시나리오 |
 | [Production 장애 대응 Runbook](docs/runbook.md) | alert별 진단, 완화, digest 확인, rollback, 복구 판정 |
 
@@ -378,11 +379,13 @@ main merge → ci-build-test (빌드 + smoke test + GHCR push)
     ↓
 자동 → cd-staging (staging 배포 + integration test)
     ↓
-수동 승인 → cd-production (prod 배포 + smoke test + 실패 시 자동 rollback)
+수동 승인 → cd-production (prod 배포 + 필수 모델/cache 계약 + 실패 시 자동 rollback)
 ```
 
 Production 배포 입력은 `main`에 포함된 40자리 commit SHA입니다. workflow는 그 SHA tag를
 registry digest로 해석하고, 해당 revision의 Kustomize manifest와 smoke test를 함께 실행합니다.
+배포된 Pod의 runtime digest, 필수 `text_classifier` 추론 결과, response-cache miss/hit까지
+확인해야 성공하며 하나라도 실패하면 Deployment 자동 rollback을 수행합니다.
 성능 baseline 비교는 `perf-benchmark.yml`의 주간/수동 GPU workflow가 담당하며 production
 workflow 안에서 자동 실행되지는 않습니다. release 승인 전 같은 image SHA의 최신 결과를
 확인합니다.

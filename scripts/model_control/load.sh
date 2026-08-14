@@ -3,25 +3,16 @@
 
 set -euo pipefail
 
-MODEL_NAME="${1:?Usage: $0 <model_name> [base_url] [timeout_seconds]}"
-BASE_URL="${2:-http://localhost:8000}"
-TIMEOUT_SECONDS="${3:-120}"
-BASE_URL="${BASE_URL%/}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/model_control/common.sh
+source "${SCRIPT_DIR}/common.sh"
+model_control_init "load" "${1:-}" "${2:-http://localhost:8000}" "${3:-120}"
 
-if [[ ! "${MODEL_NAME}" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "[load] Invalid model name: ${MODEL_NAME}" >&2
-    exit 2
-fi
-if [[ ! "${TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "[load] timeout_seconds must be a positive integer" >&2
-    exit 2
-fi
-
-body_file=$(mktemp)
-trap 'rm -f "${body_file}"' EXIT
+model_control_temp_file body_file
 
 echo "[load] Requesting model load: ${MODEL_NAME}"
-if ! http_code=$(curl -sS \
+if ! http_code=$(model_control_curl -sS \
+    --proto "=http,https" \
     --connect-timeout 3 \
     --max-time "${TIMEOUT_SECONDS}" \
     -o "${body_file}" \
@@ -38,7 +29,8 @@ if [[ "${http_code}" != "200" ]]; then
 fi
 
 deadline=$((SECONDS + TIMEOUT_SECONDS))
-until curl -fsS --connect-timeout 3 --max-time 5 \
+until model_control_curl -fsS --proto "=http,https" \
+    --connect-timeout 3 --max-time 5 \
     "${BASE_URL}/v2/models/${MODEL_NAME}/ready" > /dev/null; do
     if (( SECONDS >= deadline )); then
         echo "[load] Timed out waiting for ${MODEL_NAME} to become ready" >&2

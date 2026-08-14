@@ -90,9 +90,11 @@ staging/prod는 hostname 기준 topology spread를 기본 활성화합니다. GP
 필요하면 `DoNotSchedule`로 바꾸고 GPU 용량을 먼저 확보합니다.
 
 staging/prod는 NetworkPolicy도 활성화합니다. staging은 같은 namespace Pod를 허용하지만
-prod는 `allowSameNamespace: false`로 두고, 이름이 `ingress-nginx`인 namespace의 HTTP/gRPC와
-이름이 `monitoring`인 namespace의 metrics 접근만 허용합니다. 클러스터 구성이 다르면
-`networkPolicy.*NamespaceSelector`를 배포 전에 조정하고 inference와 scrape를 각각 확인합니다.
+prod는 `allowSameNamespace: false`로 둡니다. 외부 접근은 namespace와 workload label을 함께
+검사하며 기본값은 ingress controller의 `app.kubernetes.io/component=controller`, Prometheus의
+`app.kubernetes.io/name=prometheus`입니다. 클러스터 구성이 다르면
+`networkPolicy.*NamespaceSelector`와 `networkPolicy.*PodSelector`를 함께 조정하고 inference와
+scrape를 각각 확인합니다.
 
 ## 주요 배포 명령어
 

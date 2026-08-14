@@ -35,6 +35,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               {{- toYaml .Values.networkPolicy.ingressNamespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.ingressPodSelector | nindent 14 }}
       ports:
         - {protocol: TCP, port: {{ .Values.service.httpPort }}}
         - {protocol: TCP, port: {{ .Values.service.grpcPort }}}
@@ -42,6 +45,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               {{- toYaml .Values.networkPolicy.monitoringNamespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.monitoringPodSelector | nindent 14 }}
       ports:
         - {protocol: TCP, port: {{ .Values.service.metricsPort }}}
 {{- end }}

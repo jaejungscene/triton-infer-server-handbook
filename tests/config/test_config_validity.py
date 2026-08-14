@@ -305,6 +305,17 @@ class TestDeploymentRuntimeArgs:
             assert policy["spec"]["policyTypes"] == expected_policy_types
             assert policy["spec"]["podSelector"]["matchLabels"]["app"] == \
                 "triton-server"
+            external_sources = [
+                source
+                for rule in policy["spec"]["ingress"]
+                for source in rule.get("from", [])
+                if "namespaceSelector" in source
+            ]
+            assert external_sources
+            assert all(
+                source.get("podSelector", {}).get("matchLabels")
+                for source in external_sources
+            ), f"{overlay} external ingress must select trusted workloads"
 
         prod_policy = self._load_yaml(
             os.path.join(overlays_dir, "prod", "network_policy.yaml")
@@ -316,6 +327,22 @@ class TestDeploymentRuntimeArgs:
         ), "production must not trust every pod in its namespace"
         assert prod_policy["spec"]["egress"] == [], \
             "production must default-deny outbound traffic"
+
+    def test_helm_network_policy_selects_trusted_workloads(self, project_root):
+        values = self._load_yaml(
+            os.path.join(project_root, "deploy", "helm", "triton", "values.yaml")
+        )["networkPolicy"]
+        assert values["ingressPodSelector"]
+        assert values["monitoringPodSelector"]
+
+        template_path = os.path.join(
+            project_root, "deploy", "helm", "triton", "templates",
+            "networkpolicy.yaml"
+        )
+        with open(template_path) as template_file:
+            template = template_file.read()
+        assert ".Values.networkPolicy.ingressPodSelector" in template
+        assert ".Values.networkPolicy.monitoringPodSelector" in template
 
     def test_production_has_hpa_and_pdb(self, project_root):
         prod_dir = os.path.join(project_root, "deploy", "k8s", "overlays", "prod")
@@ -554,14 +581,38 @@ class TestReleaseWorkflow:
 
     def test_deployment_workflows_explicitly_enable_live_tests(self, project_root):
         workflow_expectations = {
-            "ci-build-test.yml": "pytest tests/smoke/ --run-live",
+            "ci-build-test.yml": (
+                "tests/smoke/",
+                "--run-live",
+            ),
             "cd-staging.yml": "pytest tests/integration/ --run-live",
-            "cd-production.yml": "pytest tests/smoke/ --run-live",
+            "cd-production.yml": (
+                "tests/smoke/",
+                "--run-live",
+            ),
         }
-        for filename, command in workflow_expectations.items():
+        for filename, commands in workflow_expectations.items():
             path = os.path.join(project_root, ".github", "workflows", filename)
             with open(path) as workflow_file:
-                assert command in workflow_file.read()
+                workflow = workflow_file.read()
+            if isinstance(commands, str):
+                commands = (commands,)
+            assert all(command in workflow for command in commands)
+
+    def test_production_deploy_gates_on_required_model_and_cache(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "cd-production.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "requirements-integration.txt" in workflow
+        assert "tests/integration/test_text_classifier.py" in workflow
+        assert "tests/integration/test_cache.py" in workflow
+        assert '--triton-metrics-url "http://localhost:8002"' in workflow
+        assert workflow.index("tests/integration/test_cache.py") < workflow.index(
+            "- name: Auto-rollback on failure"
+        )
 
     def test_main_build_tests_the_published_digest(self, project_root):
         workflow_path = os.path.join(
@@ -574,7 +625,13 @@ class TestReleaseWorkflow:
         assert "./scripts/build.sh --env dev --clean" not in workflow
         assert "- 'client/**'" in workflow
         assert "- 'tests/**'" in workflow
-        assert "--cache-config=local,size=16777216" in workflow
+        assert "--model-control-mode=explicit" in workflow
+        assert "--load-model=*" in workflow
+        assert "--cache-config=local,size=67108864" in workflow
+        assert "--rate-limit=execution_count" in workflow
+        assert "tests/integration/test_text_classifier.py" in workflow
+        assert "tests/integration/test_cache.py" in workflow
+        assert "--triton-metrics-url http://localhost:8002" in workflow
         assert "id: build" in workflow
         assert "push: true" in workflow
         assert "${{ env.IMAGE_NAME }}:candidate-${{ github.sha }}" in workflow
@@ -582,7 +639,7 @@ class TestReleaseWorkflow:
         assert workflow.count("uses: docker/build-push-action@") == 1
         assert "docker buildx imagetools create" in workflow
         assert 'test "${PROMOTED_DIGEST}" = "${CANDIDATE_DIGEST}"' in workflow
-        assert workflow.index("- name: Run smoke tests") < workflow.index(
+        assert workflow.index("- name: Run release contract tests") < workflow.index(
             "- name: Promote tested digest to release tag"
         )
 
@@ -596,6 +653,21 @@ class TestReleaseWorkflow:
             assert "^sha256:[0-9a-f]{64}$" in workflow
             assert 'IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}' in workflow
             assert 'kustomize edit set image "triton-server=${IMAGE_REF}"' in workflow
+
+    def test_production_verifies_the_runtime_image_digest(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "cd-production.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "- name: Verify deployed image digest" in workflow
+        assert '"${DEPLOYMENT_IMAGE}" != "${IMAGE_REF}"' in workflow
+        assert "containerStatuses" in workflow
+        assert '"${image_id}" != *@"${IMAGE_DIGEST}"' in workflow
+        assert workflow.index("- name: Verify deployed image digest") < workflow.index(
+            "- name: Smoke test"
+        )
 
     def test_perf_benchmark_uses_release_runtime_contract(self, project_root):
         workflow_path = os.path.join(
@@ -622,6 +694,24 @@ class TestReleaseWorkflow:
 
             assert f"kubectl config use-context \"${{{variable}}}\"" in workflow
             assert f"kubectl config current-context)\" = \"${{{variable}}}\"" in workflow
+
+    def test_staging_restores_the_exact_previous_image_on_failure(
+        self, project_root
+    ):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "cd-staging.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "- name: Capture current staging image" in workflow
+        assert "steps.previous.outputs.exists == 'true'" in workflow
+        assert '"triton=${PREVIOUS_IMAGE}"' in workflow
+        assert 'test "${RESTORED_IMAGE}" = "${PREVIOUS_IMAGE}"' in workflow
+        assert "no previous deployment exists to restore" in workflow
+        assert workflow.index("- name: Restore previous staging image") < workflow.index(
+            "- name: Notify Slack (failure)"
+        )
 
     def test_composite_action_inputs_are_not_interpolated_in_shell(self, project_root):
         action_path = os.path.join(

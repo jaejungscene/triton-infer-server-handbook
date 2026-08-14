@@ -92,10 +92,10 @@ groups:
 
       # service discovery 실패 등으로 target 시계열 자체가 사라짐
       - alert: TritonMetricsMissing
-        expr: absent_over_time(up{service="triton"}[5m])
+        expr: absent_over_time(up{service="triton",environment="production"}[5m])
         for: 2m
         labels:
           severity: critical
         annotations:
-          summary: "Triton metrics target is missing"
-          description: "No Triton scrape target has been discovered for at least 5 minutes"
+          summary: "Production Triton metrics target is missing"
+          description: "No production Triton scrape target has been discovered for at least 5 minutes"

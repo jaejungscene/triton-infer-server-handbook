@@ -100,6 +100,45 @@ def numpy_to_triton_dtype(dtype: np.dtype) -> str:
         ) from error
 
 
+def validate_numpy_request(
+    model_name: str,
+    input_data: dict[str, np.ndarray],
+    output_names: list[str],
+) -> None:
+    """Validate the client-side shape of a convenience inference request."""
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError("model_name must be a non-empty string")
+    if not isinstance(input_data, dict) or not input_data:
+        raise ValueError("input_data must be a non-empty dictionary")
+    for name, data in input_data.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("input names must be non-empty strings")
+        if not isinstance(data, np.ndarray):
+            raise TypeError(f"input {name!r} must be a NumPy array")
+        if data.size == 0:
+            raise ValueError(f"input {name!r} must not be empty")
+
+    if not isinstance(output_names, list) or not output_names:
+        raise ValueError("output_names must be a non-empty list")
+    if not all(isinstance(name, str) and name for name in output_names):
+        raise ValueError("output names must be non-empty strings")
+    if len(set(output_names)) != len(output_names):
+        raise ValueError("output_names must not contain duplicates")
+
+
+def collect_numpy_outputs(result, output_names: list[str]) -> dict[str, np.ndarray]:
+    """Collect every requested tensor and fail on an incomplete response."""
+    outputs = {}
+    for name in output_names:
+        value = result.as_numpy(name)
+        if value is None:
+            raise RuntimeError(f"Triton response is missing requested output {name!r}")
+        if not isinstance(value, np.ndarray):
+            raise RuntimeError(f"Triton output {name!r} is not a NumPy array")
+        outputs[name] = value
+    return outputs
+
+
 def _read_optional_bytes(path: str) -> bytes | None:
     if not path:
         return None

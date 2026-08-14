@@ -27,6 +27,25 @@ def test_prometheus_rules_do_not_clamp_low_traffic_denominators(project_root):
     assert all(">= 0.1" in expression for expression in ratio_expressions)
 
 
+def test_missing_metrics_rule_tracks_the_required_production_environment(project_root):
+    rules_path = os.path.join(
+        project_root, "monitoring", "prometheus", "triton_rules.yml"
+    )
+    with open(rules_path) as rules_file:
+        rules = yaml.safe_load(rules_file)
+
+    missing_rule = next(
+        rule
+        for group in rules["groups"]
+        for rule in group["rules"]
+        if rule.get("alert") == "TritonMetricsMissing"
+    )
+    assert (
+        'up{service="triton",environment="production"}'
+        in missing_rule["expr"]
+    )
+
+
 def test_dashboard_only_uses_metrics_exported_by_default(project_root):
     dashboard_path = os.path.join(
         project_root, "monitoring", "grafana", "triton_dashboard.json"

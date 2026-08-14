@@ -71,8 +71,12 @@ networkPolicy:
     rules: []
   ingressNamespaceSelector:
     kubernetes.io/metadata.name: ingress-nginx
+  ingressPodSelector:
+    app.kubernetes.io/component: controller
   monitoringNamespaceSelector:
     kubernetes.io/metadata.name: monitoring
+  monitoringPodSelector:
+    app.kubernetes.io/name: prometheus
 
 # ----- 리소스 -----
 resources:

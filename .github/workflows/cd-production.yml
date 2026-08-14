@@ -101,6 +101,7 @@ jobs:
             exit 1
           fi
           echo "IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "${GITHUB_ENV}"
+          echo "IMAGE_DIGEST=${DIGEST}" >> "${GITHUB_ENV}"
         env:
           RELEASE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag }}
 
@@ -144,17 +145,47 @@ jobs:
           echo "applied=true" >> "${GITHUB_OUTPUT}"
           kubectl rollout status deployment/triton-server -n production --timeout=600s
 
-      # ── Post-deploy 검증 ──
-      - name: Smoke test
+      - name: Verify deployed image digest
+        if: ${{ github.event.inputs.rollback != 'true' }}
         run: |
-          python -m pip install -r requirements-dev.txt
+          DEPLOYMENT_IMAGE="$(kubectl get deployment/triton-server -n production \
+            -o jsonpath='{.spec.template.spec.containers[?(@.name=="triton")].image}')"
+          if [[ "${DEPLOYMENT_IMAGE}" != "${IMAGE_REF}" ]]; then
+            echo "Deployment image mismatch: expected ${IMAGE_REF}, got ${DEPLOYMENT_IMAGE}" >&2
+            exit 1
+          fi
+
+          POD_IMAGE_IDS="$(kubectl get pods -n production -l app=triton-server \
+            -o jsonpath='{range .items[*]}{.status.containerStatuses[?(@.name=="triton")].imageID}{"\n"}{end}')"
+          if [[ -z "${POD_IMAGE_IDS}" ]]; then
+            echo "No running triton container imageID was reported" >&2
+            exit 1
+          fi
+          while IFS= read -r image_id; do
+            if [[ "${image_id}" != *@"${IMAGE_DIGEST}" ]]; then
+              echo "Pod imageID mismatch: expected digest ${IMAGE_DIGEST}, got ${image_id}" >&2
+              exit 1
+            fi
+          done <<< "${POD_IMAGE_IDS}"
+
+      # ── Post-deploy 검증 ──
+      - name: Smoke test and required model contracts
+        run: |
+          python -m pip install -r requirements-integration.txt
           kubectl port-forward -n production svc/triton-server 8000:8000 8002:8002 >/tmp/triton-port-forward.log 2>&1 &
           PF_PID=$!
           trap 'kill ${PF_PID}' EXIT
 
           for i in $(seq 1 30); do
             if curl -sf "http://localhost:8000/v2/health/ready" > /dev/null 2>&1; then
-              pytest tests/smoke/ --run-live --triton-url "http://localhost:8000" -v
+              pytest \
+                tests/smoke/ \
+                tests/integration/test_text_classifier.py \
+                tests/integration/test_cache.py \
+                --run-live \
+                --triton-url "http://localhost:8000" \
+                --triton-metrics-url "http://localhost:8002" \
+                -v
               exit 0
             fi
             echo "Waiting for port-forwarded Triton... (${i}/30)"

@@ -131,8 +131,9 @@ staging 검증이 끝난 새 모델 revision을 production에 반영합니다.
 1. model artifact revision과 container image digest를 고정합니다. `latest`나 mutable tag는 사용하지 않습니다.
 2. GitHub workflow에는 main commit SHA를 입력하고 실제 Deployment가 해석된 digest를 쓰는지 확인합니다.
 3. production은 `explicit` 모드로 기동합니다.
-4. 배포 직후 smoke test와 metrics 확인을 수행합니다.
-5. 문제가 있으면 Helm rollback 또는 이전 model repository revision으로 되돌립니다.
+4. 배포 직후 Pod `imageID`, 필수 모델 output, response-cache miss/hit와 metrics를 확인합니다.
+5. 문제가 있으면 긴급 Deployment rollback으로 영향을 줄인 뒤 이전 정상 SHA의 전체 release를
+   다시 적용합니다. 외부 model repository는 해당 immutable revision도 함께 복원합니다.
 
 확인:
 
@@ -141,6 +142,7 @@ staging 검증이 끝난 새 모델 revision을 production에 반영합니다.
 - `POST /v2/repository/index`의 ready model 목록
 - `/v2/models/{name}/stats`
 - Prometheus alert 상태
+- [Production Release Evidence](release-evidence.md)의 go/no-go 항목과 변경 기록
 
 주의:
 production에서 repository를 직접 덮어쓰는 방식은 피합니다. artifact를 immutable하게 만들고,

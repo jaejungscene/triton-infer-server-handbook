@@ -87,10 +87,14 @@ jobs:
             -p 8000:8000 -p 8001:8001 -p 8002:8002 \
             "${RELEASE_IMAGE}" \
             --model-repository=/models \
-            --model-control-mode=poll \
+            --model-control-mode=explicit \
+            --load-model=* \
             --strict-model-config=true \
-            --cache-config=local,size=16777216 \
-            --log-verbose=1
+            --allow-metrics=true \
+            --allow-gpu-metrics=true \
+            --cache-config=local,size=67108864 \
+            --rate-limit=execution_count \
+            --log-verbose=0
         env:
           RELEASE_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
 
@@ -101,10 +105,17 @@ jobs:
           timeout: 120
           container-name: triton-test
 
-      - name: Run smoke tests
+      - name: Run release contract tests
         run: |
           python -m pip install -r requirements-integration.txt
-          pytest tests/smoke/ --run-live --triton-url http://localhost:8000 -v
+          pytest \
+            tests/smoke/ \
+            tests/integration/test_text_classifier.py \
+            tests/integration/test_cache.py \
+            --run-live \
+            --triton-url http://localhost:8000 \
+            --triton-metrics-url http://localhost:8002 \
+            -v
 
       - name: Promote tested digest to release tag
         run: |

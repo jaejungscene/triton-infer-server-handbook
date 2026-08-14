@@ -54,6 +54,8 @@ GitHub의 `staging`, `production` Environment에는 다음 값을 각각 등록�
 
 production Environment에는 required reviewer를 설정하고, 두 kubeconfig credential은 해당
 namespace 배포에 필요한 최소 RBAC만 부여합니다.
+승인자가 확인할 source SHA, image digest, model revision, perf artifact와 사후 관찰 기록은
+[Production Release Evidence](release-evidence.md)의 형식으로 남깁니다.
 
 ```mermaid
 sequenceDiagram
@@ -78,11 +80,24 @@ release 선택자이며, workflow는 registry에서 해당 tag의 digest를 해�
 `image@sha256:...`를 기록합니다. 같은 SHA의 Kustomize manifest와 smoke test도 checkout하므로
 승인 화면에는 commit SHA, 실제 image digest, model manifest revision, config 변경을 하나의
 release 단위로 표시합니다. branch 밖 commit이나 임의 tag는 production 입력으로 허용하지
+않습니다. rollout 직후에는 Deployment의 image reference뿐 아니라 선택된 모든 Triton Pod의
+runtime `imageID`가 이 digest와 같은지 확인합니다. 이 검증이 실패하면 smoke test로 넘어가지
+않고 자동 rollback 대상으로 처리합니다. digest 검증 뒤에는 health endpoint뿐 아니라 필수
+`text_classifier`의 실제 output과 response-cache miss/hit counter 증가를 확인합니다. cluster의
+model load, metrics, cache 설정 중 하나라도 release 후보와 다르면 배포를 성공으로 선언하지
 않습니다.
 image build 단계는 먼저 `candidate-<40자리 commit SHA>` tag를 push하고 그 digest를 직접
 smoke test합니다. 성공한 뒤에만 동일 digest에 `<40자리 commit SHA>` release tag를 붙이며
 `main`이나 `latest` tag는 만들지 않습니다. 따라서 실패한 CI의 candidate는 production
 workflow가 찾는 release tag로 승격되지 않습니다.
+
+Staging workflow는 배포 직전 현재 Deployment의 immutable image reference를 기록합니다.
+새 image의 rollout, readiness 또는 integration test가 실패하면 `kubectl rollout undo`의
+revision 추정에 의존하지 않고 기록한 image를 다시 설정한 뒤 복구 rollout까지 확인합니다.
+최초 설치처럼 이전 Deployment가 없으면 자동 복구 대상이 없음을 실패 로그에 명시하며,
+운영자는 namespace를 정리하거나 검증된 release를 수동 배포해야 합니다. 이 자동 복구는
+image만 되돌리므로 ConfigMap, Secret, API contract를 함께 바꾸는 release는 이전 manifest를
+별도 GitOps revision으로 복원하는 절차가 필요합니다.
 
 성능 비교는 production deploy job 안에서 실행되지 않습니다. self-hosted GPU runner의
 `perf-benchmark.yml`을 주간 또는 수동으로 실행하고, 승인자는 배포할 image SHA와 같은 revision의
@@ -125,7 +140,10 @@ p95/p99는 `perf_analyzer` 또는 trace backend에서 확인합니다. 요청량
 수집해도 staging 장애가 production 수치에 합산되지 않습니다. 모든 scrape target에는
 `service="triton"`과 `environment="staging|production"` label을 붙여야 합니다. alert는
 `service`를 안정적인 discovery 계약으로 사용하며, `TritonMetricsMissing`은 target 자체가
-5분 이상 사라진 경우를 `up == 0`과 별도로 감지합니다.
+5분 이상 사라진 경우를 `up == 0`과 별도로 감지합니다. 기본 rule은 필수 환경인
+`environment="production"`을 명시하므로 staging target이 남아 있어도 production target
+소실을 숨기지 않습니다. 필수 production 환경이 여러 개라면 환경별 rule을 생성하거나
+Prometheus rule template으로 기대 환경 목록을 관리합니다.
 
 배포 후:
 

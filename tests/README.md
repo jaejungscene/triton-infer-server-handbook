@@ -58,6 +58,11 @@ readiness, BYTES input, label/confidence output 계약을 실제 inference로 �
 실패시킵니다. LLM/vision처럼 manifest에서 기본 비활성인 선택 모델은 로드되지 않았을 때만
 skip하고, 일단 ready인 모델의 연결·설정·inference 오류는 배포 실패로 처리합니다.
 
+Main release CI도 candidate image를 production과 같은 `explicit + --load-model=*`, local cache,
+rate limiter 인자로 기동한 뒤 smoke, 필수 text classifier, cache miss/hit 계약을 모두 통과해야
+SHA release tag를 생성합니다. 따라서 staging 이전에도 image 안 모델과 production server
+인자의 결합 오류를 차단합니다.
+
 성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,
 `tests/perf/profiles.json`의 input data·batch size·shape로 부하를 만든 다음
 `tests/perf/baseline.json`의 동일 concurrency 기준과 비교합니다. `perf_analyzer`의 latency

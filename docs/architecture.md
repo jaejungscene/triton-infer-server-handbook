@@ -103,6 +103,12 @@ Ensemble은 중간 tensor를 클라이언트로 왕복하지 않아 네트워크
 Python 코드로 분기와 오류 처리를 구현할 수 있지만, 로직 복잡도와 테스트 부담이 커집니다.
 고정 DAG면 Ensemble, 조건 분기가 중요하면 BLS를 먼저 검토합니다.
 
+BLS template은 함께 제공되는 ensemble preprocessor와 inferencer를 호출하는 실행 가능한
+출발점이므로 입력을 UINT8 HWC로 선언합니다. 다른 하위 모델을 호출하도록 바꾸면 BLS config의
+dtype/shape, 내부 `pb_utils.Tensor` 이름, requested output 이름, warmup 입력을 한 계약으로
+같이 변경해야 합니다. 하위 응답에서 tensor가 누락된 경우에는 요청별 오류로 처리해야 batch의
+다른 요청까지 잃지 않습니다.
+
 ## 관측성
 
 운영에서 최소로 봐야 할 신호는 다음입니다.

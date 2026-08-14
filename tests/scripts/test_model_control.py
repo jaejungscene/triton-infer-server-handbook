@@ -1,3 +1,4 @@
+import os
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -9,8 +10,10 @@ import pytest
 class _ModelControlHandler(BaseHTTPRequestHandler):
     ready = False
     actions = []
+    authorization_headers = []
 
     def do_POST(self):
+        type(self).authorization_headers.append(self.headers.get("Authorization"))
         if self.path.endswith("/load"):
             type(self).ready = True
             type(self).actions.append("load")
@@ -26,6 +29,7 @@ class _ModelControlHandler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_GET(self):
+        type(self).authorization_headers.append(self.headers.get("Authorization"))
         if self.path.endswith("/ready"):
             self.send_response(200 if type(self).ready else 503)
             self.end_headers()
@@ -40,6 +44,7 @@ class _ModelControlHandler(BaseHTTPRequestHandler):
 def model_control_server():
     _ModelControlHandler.ready = False
     _ModelControlHandler.actions = []
+    _ModelControlHandler.authorization_headers = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), _ModelControlHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -50,13 +55,14 @@ def model_control_server():
         thread.join()
 
 
-def _run_script(project_root, script_name, *args):
+def _run_script(project_root, script_name, *args, env=None):
     script = Path(project_root) / "scripts" / "model_control" / script_name
     return subprocess.run(
         [str(script), *args],
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
@@ -90,3 +96,42 @@ def test_model_name_rejects_url_path_injection(project_root):
 
     assert result.returncode == 2
     assert "Invalid model name" in result.stderr
+
+
+def test_model_control_rejects_non_http_origin(project_root):
+    result = _run_script(project_root, "load.sh", "sample_model", "file:///tmp")
+
+    assert result.returncode == 2
+    assert "HTTP(S) origin" in result.stderr
+
+
+def test_model_control_sends_auth_token_to_control_and_readiness_requests(
+    project_root, model_control_server
+):
+    env = os.environ.copy()
+    env["TRITON_AUTH_TOKEN"] = "test-token"
+
+    result = _run_script(
+        project_root,
+        "load.sh",
+        "sample_model",
+        model_control_server,
+        "5",
+        env=env,
+    )
+
+    assert result.returncode == 0
+    assert _ModelControlHandler.authorization_headers == [
+        "Bearer test-token",
+        "Bearer test-token",
+    ]
+
+
+def test_model_control_rejects_header_injection(project_root):
+    env = os.environ.copy()
+    env["TRITON_AUTH_TOKEN"] = "token\nX-Forged: true"
+
+    result = _run_script(project_root, "load.sh", "sample_model", env=env)
+
+    assert result.returncode == 2
+    assert "line breaks" in result.stderr
