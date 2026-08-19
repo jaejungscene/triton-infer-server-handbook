@@ -62,13 +62,21 @@ def pytest_collection_modifyitems(config, items):
 def _derive_metrics_url(http_url):
     parsed = urlsplit(http_url)
     host = parsed.hostname or "localhost"
+    if ":" in host:
+        host = f"[{host}]"
     netloc = f"{host}:8002"
-    if parsed.username:
-        auth = parsed.username
-        if parsed.password:
-            auth = f"{auth}:{parsed.password}"
-        netloc = f"{auth}@{netloc}"
     return urlunsplit((parsed.scheme or "http", netloc, "", "", ""))
+
+
+def _authorization_headers(variable_name, fallback_variable=None):
+    token = os.getenv(variable_name)
+    if token is None and fallback_variable:
+        token = os.getenv(fallback_variable)
+    if not token:
+        return {}
+    if "\r" in token or "\n" in token:
+        raise pytest.UsageError(f"{variable_name} must not contain line breaks")
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture(scope="session")
@@ -84,6 +92,18 @@ def triton_grpc_url(request):
 @pytest.fixture(scope="session")
 def triton_metrics_url(request, triton_url):
     return request.config.getoption("--triton-metrics-url") or _derive_metrics_url(triton_url)
+
+
+@pytest.fixture(scope="session")
+def triton_headers():
+    return _authorization_headers("TRITON_AUTH_TOKEN")
+
+
+@pytest.fixture(scope="session")
+def triton_metrics_headers():
+    return _authorization_headers(
+        "TRITON_METRICS_AUTH_TOKEN", fallback_variable="TRITON_AUTH_TOKEN"
+    )
 
 
 @pytest.fixture(scope="session")
