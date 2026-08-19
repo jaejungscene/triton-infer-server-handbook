@@ -62,6 +62,8 @@ class _FakeHTTPClient:
 
 
 class _FakeSharedMemory(types.ModuleType):
+    fail_set = False
+
     def __init__(self):
         super().__init__("tritonclient.utils.shared_memory")
         self.created = []
@@ -72,7 +74,8 @@ class _FakeSharedMemory(types.ModuleType):
         return name
 
     def set_shared_memory_region(self, handle, values):
-        pass
+        if type(self).fail_set:
+            raise RuntimeError("shared memory write failed")
 
     def destroy_shared_memory_region(self, handle):
         self.destroyed.append(handle)
@@ -99,6 +102,7 @@ def fake_tritonclient(monkeypatch):
         sys.modules, "tritonclient.utils.shared_memory", shared_memory_module
     )
     _FakeHTTPClient.fail_infer = False
+    _FakeSharedMemory.fail_set = False
     yield shared_memory_module
 
 
@@ -139,10 +143,10 @@ def test_inference_failure_still_cleans_regions(fake_tritonclient):
     client.close()
 
 
-def test_missing_output_metadata_fails_before_allocation(fake_tritonclient):
+def test_invalid_request_metadata_fails_before_allocation(fake_tritonclient):
     client = TritonSHMClient(TritonConfig())
 
-    with pytest.raises(ValueError, match="Missing output metadata"):
+    with pytest.raises(ValueError, match="exactly match"):
         client.infer_with_shm(
             model_name="sample",
             input_data={"input": np.array([[1.0]], dtype=np.float32)},
@@ -152,4 +156,45 @@ def test_missing_output_metadata_fails_before_allocation(fake_tritonclient):
         )
 
     assert fake_tritonclient.created == []
+
+    with pytest.raises(ValueError, match="positive integer dimensions"):
+        client.infer_with_shm(
+            model_name="sample",
+            input_data={"input": np.array([[1.0]], dtype=np.float32)},
+            output_names=["output"],
+            output_shapes={"output": (1, 0)},
+            output_dtypes={"output": np.float32},
+        )
+    with pytest.raises(TypeError, match="NumPy"):
+        client.infer_with_shm(
+            model_name="sample",
+            input_data={"input": [1.0]},
+            output_names=["output"],
+            output_shapes={"output": (1, 1)},
+            output_dtypes={"output": np.float32},
+        )
+    assert fake_tritonclient.created == []
     client.close()
+
+
+def test_region_is_cleaned_when_input_write_fails(fake_tritonclient):
+    client = TritonSHMClient(TritonConfig())
+    _FakeSharedMemory.fail_set = True
+
+    with pytest.raises(RuntimeError, match="shared memory write failed"):
+        _infer(client)
+
+    assert fake_tritonclient.destroyed == fake_tritonclient.created
+    assert client._registered_regions == []
+    assert client._region_handles == {}
+    client.close()
+
+
+def test_closed_client_cannot_allocate_regions(fake_tritonclient):
+    client = TritonSHMClient(TritonConfig())
+    client.close()
+
+    with pytest.raises(RuntimeError, match="client is closed"):
+        _infer(client)
+
+    assert fake_tritonclient.created == []

@@ -106,7 +106,10 @@ scheme이나 path 없이 `host:port`로 지정합니다. TLS 파일을 설정하
 
 Shared-memory client는 요청마다 충돌하지 않는 region 이름을 만들고 inference 종료 시 즉시
 해제합니다. 반환 NumPy 배열은 region 해제 전에 복사되므로 client 수명과 독립적입니다.
-출력 shape/dtype은 실제 모델 계약과 정확히 일치해야 하며 빈 tensor는 허용하지 않습니다.
+출력 shape/dtype key는 요청 output 목록과 정확히 일치해야 하며 shape는 양의 정수 차원만,
+입력은 비어 있지 않은 NumPy 배열만 허용합니다. 검증은 region 할당 전에 끝나며 생성 직후부터
+handle을 추적하므로 데이터 기록이나 등록이 실패해도 local region을 정리합니다. 닫힌 client는
+재사용하지 않습니다.
 
 Statistics API CLI는 10초 timeout을 기본 적용하고 HTTPS 인증서 검증을 유지합니다. 인증이
 필요하면 token을 명령행 인수로 노출하지 말고 환경변수로 전달합니다. `inference_count`는 요청
