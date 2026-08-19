@@ -29,6 +29,9 @@ TRITON_AUTH_TOKEN="$(secret-tool lookup service triton)" \
 배치하지 않으며, CI/CD가 immutable model revision을 먼저 게시한 뒤 실행해야 합니다.
 단일 replica의 explicit reload는 무중단이 아닙니다. 무중단 교체가 필요하면 새 Deployment나
 새 model name으로 먼저 load·warmup한 후 traffic을 전환하는 blue/green 방식을 사용합니다.
+`unload.sh`는 단순히 model ready endpoint가 non-200인지 보지 않고, 성공한 Repository Index의
+ready 목록에서 대상 모델이 사라졌을 때만 완료로 판정합니다. 따라서 인증 오류나 Triton 5xx를
+unload 성공으로 기록하지 않습니다.
 
 model-control base URL은 credential이나 path가 없는 HTTP(S) origin만 허용합니다. 인증이
 필요하면 token을 인수로 전달하지 말고 `TRITON_AUTH_TOKEN` 환경변수로 주입합니다. 스크립트는
