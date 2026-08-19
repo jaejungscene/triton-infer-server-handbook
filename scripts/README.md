@@ -15,6 +15,15 @@
 | `model_control/unload.sh` | 런타임 모델 언로드 완료 확인 | explicit mode 운영 |
 | `model_control/reload.sh` | 검증된 artifact를 unload → load | 단일 replica에서는 가용성 공백 발생 |
 
+`health_check.sh`의 URL은 credential이나 path가 없는 HTTP(S) origin만 허용합니다. 인증이 필요한
+내부 운영 endpoint는 `TRITON_AUTH_TOKEN` 환경변수를 사용하며 live, ready, Repository Index
+요청에 같은 Bearer token을 전달합니다. HTTPS 인증서 검증은 기본으로 유지합니다.
+
+```bash
+TRITON_AUTH_TOKEN="$(secret-tool lookup service triton)" \
+  scripts/health_check.sh https://triton-ops.example.com
+```
+
 모델 이름은 URL 경로에 사용되므로 영문·숫자·점·밑줄·하이픈만 허용합니다. 세 스크립트의
 기본 timeout은 120초이며 세 번째 인자로 조정할 수 있습니다. `reload.sh`는 artifact를
 배치하지 않으며, CI/CD가 immutable model revision을 먼저 게시한 뒤 실행해야 합니다.

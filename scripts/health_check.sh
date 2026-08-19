@@ -9,8 +9,70 @@
 
 set -euo pipefail
 
-BASE_URL="${1:-http://localhost:8000}"
-BASE_URL="${BASE_URL%/}"
+if ! command -v python3 &>/dev/null; then
+    echo "[health] python3 is required to validate the endpoint and response" >&2
+    exit 1
+fi
+
+if ! BASE_URL=$(python3 - "${1:-http://localhost:8000}" <<'PYTHON'
+import sys
+from urllib.parse import urlsplit, urlunsplit
+
+url = sys.argv[1]
+try:
+    parsed = urlsplit(url)
+    port = parsed.port
+except ValueError as error:
+    raise SystemExit(f"[health] invalid base URL: {error}") from error
+
+if (
+    parsed.scheme not in {"http", "https"}
+    or not parsed.hostname
+    or parsed.username is not None
+    or parsed.password is not None
+    or parsed.path not in {"", "/"}
+    or parsed.query
+    or parsed.fragment
+    or (port is not None and not 1 <= port <= 65535)
+):
+    raise SystemExit(
+        "[health] base URL must be an HTTP(S) origin without credentials, path, query, or fragment"
+    )
+
+host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+netloc = f"{host}:{port}" if port is not None else host
+print(urlunsplit((parsed.scheme, netloc, "", "", "")))
+PYTHON
+); then
+    exit 2
+fi
+
+AUTH_HEADER_FILE=""
+cleanup() {
+    if [[ -n "${AUTH_HEADER_FILE}" ]]; then
+        rm -f "${AUTH_HEADER_FILE}"
+    fi
+}
+trap cleanup EXIT
+
+if [[ "${TRITON_AUTH_TOKEN:-}" == *$'\r'* || "${TRITON_AUTH_TOKEN:-}" == *$'\n'* ]]; then
+    echo "[health] TRITON_AUTH_TOKEN must not contain line breaks" >&2
+    exit 2
+fi
+if [[ -n "${TRITON_AUTH_TOKEN:-}" ]]; then
+    AUTH_HEADER_FILE="$(mktemp)"
+    chmod 600 "${AUTH_HEADER_FILE}"
+    printf 'Authorization: Bearer %s\n' "${TRITON_AUTH_TOKEN}" > "${AUTH_HEADER_FILE}"
+fi
+
+health_curl() {
+    if [[ -n "${AUTH_HEADER_FILE}" ]]; then
+        command curl --header "@${AUTH_HEADER_FILE}" "$@"
+    else
+        command curl "$@"
+    fi
+}
+
 CURL_ARGS=(-fsS --connect-timeout 3 --max-time 10)
 
 echo "[health] Checking Triton server at ${BASE_URL}"
@@ -18,7 +80,8 @@ echo "=========================================="
 
 # Server liveness
 echo -n "Server Live:  "
-if curl "${CURL_ARGS[@]}" "${BASE_URL}/v2/health/live" > /dev/null 2>&1; then
+if health_curl --proto "=http,https" "${CURL_ARGS[@]}" \
+    "${BASE_URL}/v2/health/live" > /dev/null 2>&1; then
     echo "OK"
 else
     echo "FAIL"
@@ -28,7 +91,8 @@ fi
 
 # Server readiness
 echo -n "Server Ready: "
-if curl "${CURL_ARGS[@]}" "${BASE_URL}/v2/health/ready" > /dev/null 2>&1; then
+if health_curl --proto "=http,https" "${CURL_ARGS[@]}" \
+    "${BASE_URL}/v2/health/ready" > /dev/null 2>&1; then
     echo "OK"
 else
     echo "FAIL (server is live but not ready)"
@@ -39,12 +103,7 @@ echo "=========================================="
 
 # Model status
 echo "[health] Loaded Models:"
-if ! command -v python3 &>/dev/null; then
-    echo "[health] python3 is required to validate the Repository Index response" >&2
-    exit 1
-fi
-
-if ! models_response=$(curl "${CURL_ARGS[@]}" \
+if ! models_response=$(health_curl --proto "=http,https" "${CURL_ARGS[@]}" \
     -X POST \
     -H "Content-Type: application/json" \
     -d '{"ready":true}' \
