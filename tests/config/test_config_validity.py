@@ -894,6 +894,7 @@ class TestImmutableModelRelease:
                 source = dockerfile.read()
             assert "ARG TRITON_IMAGE=" in source
             assert "FROM ${TRITON_IMAGE}" in source
+            assert "# hadolint ignore=DL3006" in source
 
     def test_production_support_images_are_digest_pinned(self, project_root):
         compose_path = os.path.join(
