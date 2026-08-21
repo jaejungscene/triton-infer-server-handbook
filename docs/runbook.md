@@ -1,8 +1,9 @@
 # Production 장애 대응 Runbook
 
 이 문서는 production Triton 경보를 받은 당직자가 코드 구조를 몰라도 초기 진단, 완화,
-rollback, 복구 확인을 수행할 수 있도록 정리한 절차입니다. 명령 예시는 Kustomize production
-배포와 `app=triton-server` label을 기준으로 합니다.
+rollback, 복구 확인을 수행할 수 있도록 정리한 절차입니다. 모든 Prometheus 경보의
+`runbook_url`이 이 문서를 가리키며, 명령 예시는 Kustomize production 배포와
+`app=triton-server` label을 기준으로 합니다.
 
 ## 대응 원칙
 
@@ -27,7 +28,7 @@ kubectl get events -n "${NS}" --sort-by=.lastTimestamp | tail -n 30
 
 다음 정보를 incident timeline에 남깁니다.
 
-- alert 이름, firing 시작 시각, `environment`, `model`, `version`, `instance`
+- alert 이름, firing 시작 시각, `environment`, `model`, `version`, `instance`, `gpu_uuid`
 - 직전 배포 SHA와 실제 Pod `imageID` digest
 - 영향받는 요청 비율, region/tenant/model 범위
 - ready Pod 수, restart 수, Pending/Evicted/OOMKilled 여부
