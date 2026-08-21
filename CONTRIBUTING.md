@@ -28,7 +28,7 @@ Prometheus rule, shell 문법을 검사합니다. 제출 전 최소 검증은 �
 ```bash
 ./scripts/validate.sh
 pytest tests/
-ruff check models/ client/ tests/ --select E,W,F --ignore E501
+ruff check models/ client/ tests/ scripts/ --select E,W,F --ignore E501
 helm lint deploy/helm/triton \
   -f deploy/helm/triton/values.prod.yaml \
   --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000
@@ -39,7 +39,8 @@ TRITON_IMAGE=triton-server:validation GRAFANA_ADMIN_PASSWORD=local docker compos
   -f deploy/docker/docker-compose.prod.yml config --quiet
 ```
 
-`pytest tests/`는 서버가 필요 없는 suite를 실행하고 smoke/integration은 skip합니다. 로컬
+PR의 offline unit job은 `tests/models`, `tests/client`, `tests/scripts`, `tests/perf`를 모두
+실행합니다. `pytest tests/`는 서버가 필요 없는 suite를 실행하고 smoke/integration은 skip합니다. 로컬
 Triton에 실제 요청을 보내려면 대상 디렉터리와 `--run-live`를 함께 지정합니다.
 Markdown만 바꾼 PR도 CI 대상이며 내부 파일 링크와 닫히지 않은 code fence를 config suite에서
 검사합니다.

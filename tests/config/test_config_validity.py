@@ -622,7 +622,14 @@ class TestReleaseWorkflow:
             workflow = workflow_file.read()
 
         assert "name: Unit Tests" in workflow
-        assert "pytest tests/client/ tests/scripts/ tests/perf/" in workflow
+        assert (
+            "pytest tests/models/ tests/client/ tests/scripts/ tests/perf/"
+            in workflow
+        )
+        assert (
+            "ruff check models/ client/ tests/ scripts/ --select E,W,F --ignore E501"
+            in workflow
+        )
 
     def test_deployment_workflows_explicitly_enable_live_tests(self, project_root):
         workflow_expectations = {
