@@ -18,7 +18,8 @@ groups:
           severity: warning
         annotations:
           summary: "High inference latency on {{ $labels.environment }}/{{ $labels.model }}"
-          description: "5m average latency is {{ $value }}us (threshold: 200ms)"
+          description: "environment={{ $labels.environment }}, model={{ $labels.model }}, version={{ $labels.version }}: 5m average latency is {{ $value }}us (threshold: 200ms)"
+          runbook_url: "https://github.com/jaejungscene/triton-infer-server-handbook/blob/main/docs/runbook.md"
 
       # 추론 요청 에러율 > 5%
       - alert: TritonHighErrorRate
@@ -41,7 +42,8 @@ groups:
           severity: critical
         annotations:
           summary: "High error rate on {{ $labels.environment }}/{{ $labels.model }}"
-          description: "Error rate is {{ $value | humanizePercentage }}"
+          description: "environment={{ $labels.environment }}, model={{ $labels.model }}, version={{ $labels.version }}: error rate is {{ $value | humanizePercentage }}"
+          runbook_url: "https://github.com/jaejungscene/triton-infer-server-handbook/blob/main/docs/runbook.md"
 
       # 큐 대기 시간이 길어짐
       - alert: TritonQueueBacklog
@@ -58,7 +60,8 @@ groups:
           severity: warning
         annotations:
           summary: "Queue backlog on {{ $labels.environment }}/{{ $labels.model }}"
-          description: "Queue wait time is {{ $value }}us"
+          description: "environment={{ $labels.environment }}, model={{ $labels.model }}, version={{ $labels.version }}: queue wait time is {{ $value }}us"
+          runbook_url: "https://github.com/jaejungscene/triton-infer-server-handbook/blob/main/docs/runbook.md"
 
       # GPU 사용률 높음 (> 90%)
       - alert: TritonGPUHighUtilization
@@ -67,8 +70,9 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "High GPU utilization"
+          summary: "High GPU utilization on {{ $labels.environment }}/{{ $labels.instance }}"
           description: "GPU {{ $labels.gpu_uuid }} utilization is {{ $value | humanizePercentage }}"
+          runbook_url: "https://github.com/jaejungscene/triton-infer-server-handbook/blob/main/docs/runbook.md"
 
       # GPU 메모리 사용률 높음 (> 90%)
       - alert: TritonGPUMemoryHigh
@@ -77,8 +81,9 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "High GPU memory usage"
-          description: "GPU memory usage is {{ $value | humanizePercentage }}"
+          summary: "High GPU memory usage on {{ $labels.environment }}/{{ $labels.instance }}"
+          description: "GPU {{ $labels.gpu_uuid }} memory usage is {{ $value | humanizePercentage }}"
+          runbook_url: "https://github.com/jaejungscene/triton-infer-server-handbook/blob/main/docs/runbook.md"
 
       # Triton 서버 다운
       - alert: TritonServerDown
@@ -87,8 +92,9 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "Triton server is down"
-          description: "Triton inference server is unreachable"
+          summary: "Triton server is down on {{ $labels.environment }}/{{ $labels.instance }}"
+          description: "Triton inference server {{ $labels.instance }} is unreachable"
+          runbook_url: "https://github.com/jaejungscene/triton-infer-server-handbook/blob/main/docs/runbook.md"
 
       # service discovery 실패 등으로 target 시계열 자체가 사라짐
       - alert: TritonMetricsMissing
@@ -97,5 +103,6 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "Production Triton metrics target is missing"
+          summary: "Triton metrics target is missing on {{ $labels.environment }}"
           description: "No production Triton scrape target has been discovered for at least 5 minutes"
+          runbook_url: "https://github.com/jaejungscene/triton-infer-server-handbook/blob/main/docs/runbook.md"

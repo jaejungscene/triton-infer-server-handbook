@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,9 +12,27 @@ class _ModelControlHandler(BaseHTTPRequestHandler):
     ready = False
     actions = []
     authorization_headers = []
+    index_status = 200
 
     def do_POST(self):
         type(self).authorization_headers.append(self.headers.get("Authorization"))
+        if self.path == "/v2/repository/index":
+            content_length = int(self.headers.get("Content-Length", 0))
+            self.rfile.read(content_length)
+            if type(self).index_status != 200:
+                self.send_error(type(self).index_status)
+                return
+            payload = json.dumps(
+                [{"name": "sample_model", "state": "READY"}]
+                if type(self).ready
+                else []
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if self.path.endswith("/load"):
             type(self).ready = True
             type(self).actions.append("load")
@@ -45,6 +64,7 @@ def model_control_server():
     _ModelControlHandler.ready = False
     _ModelControlHandler.actions = []
     _ModelControlHandler.authorization_headers = []
+    _ModelControlHandler.index_status = 200
     server = ThreadingHTTPServer(("127.0.0.1", 0), _ModelControlHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -104,6 +124,12 @@ def test_model_control_rejects_non_http_origin(project_root):
     assert result.returncode == 2
     assert "HTTP(S) origin" in result.stderr
 
+    invalid_port = _run_script(
+        project_root, "load.sh", "sample_model", "http://localhost:70000"
+    )
+    assert invalid_port.returncode == 2
+    assert "valid HTTP(S) origin" in invalid_port.stderr
+
 
 def test_model_control_sends_auth_token_to_control_and_readiness_requests(
     project_root, model_control_server
@@ -135,3 +161,17 @@ def test_model_control_rejects_header_injection(project_root):
 
     assert result.returncode == 2
     assert "line breaks" in result.stderr
+
+
+def test_unload_does_not_treat_repository_http_errors_as_success(
+    project_root, model_control_server
+):
+    _ModelControlHandler.ready = True
+    _ModelControlHandler.index_status = 401
+
+    result = _run_script(
+        project_root, "unload.sh", "sample_model", model_control_server, "5"
+    )
+
+    assert result.returncode == 1
+    assert "Repository Index failed (HTTP 401)" in result.stderr

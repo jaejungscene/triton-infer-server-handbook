@@ -191,6 +191,9 @@ Docker Compose production 예시는 단일 호스트 검증용이며 기본적�
 
 production Compose의 `TRITON_IMAGE`에는 CI가 `model_repository`를 포함해 만든 commit SHA tag
 또는 digest만 지정합니다. 이 파일은 host의 가변 `model_repository`를 mount하지 않습니다.
+함께 기동하는 Redis, Prometheus, Grafana도 읽기 쉬운 버전 tag 뒤에 registry manifest digest를
+고정합니다. upstream tag가 같은 내용을 계속 가리킨다고 가정하지 말고, 갱신 PR에서 새 digest와
+Compose config 검증 결과를 함께 남깁니다.
 단일 호스트에서 release 후보를 재현할 때도 아래처럼 image와 모델 세트를 같은 단위로
 검증합니다.
 

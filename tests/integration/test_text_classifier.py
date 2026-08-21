@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 
-def test_required_text_classifier_contract(triton_url):
+def test_required_text_classifier_contract(triton_url, triton_headers):
     try:
         import tritonclient.http as httpclient
     except ImportError:
@@ -21,7 +21,7 @@ def test_required_text_classifier_contract(triton_url):
         ssl=ssl_enabled,
     )
     try:
-        assert client.is_model_ready("text_classifier"), \
+        assert client.is_model_ready("text_classifier", headers=triton_headers), \
             "required model text_classifier is not ready"
 
         texts = np.array(
@@ -37,7 +37,9 @@ def test_required_text_classifier_contract(triton_url):
             httpclient.InferRequestedOutput("CONFIDENCE"),
         ]
 
-        result = client.infer("text_classifier", [input_tensor], outputs)
+        result = client.infer(
+            "text_classifier", [input_tensor], outputs, headers=triton_headers
+        )
         labels = result.as_numpy("LABEL")
         confidences = result.as_numpy("CONFIDENCE")
 

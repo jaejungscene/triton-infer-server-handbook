@@ -1,5 +1,6 @@
 import json
 import sys
+import threading
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,8 +50,11 @@ class _FakeResult:
 class _FakeInferenceServerClient:
     emit_responses = True
     emit_error = False
+    emit_invalid_utf8 = False
     last_request = None
     last_headers = None
+    stop_event = threading.Event()
+    request_started = threading.Event()
 
     def __init__(self, **kwargs):
         self.callback = None
@@ -61,16 +65,18 @@ class _FakeInferenceServerClient:
 
     def async_stream_infer(self, **kwargs):
         type(self).last_request = kwargs
+        type(self).request_started.set()
         if type(self).emit_error:
             self.callback(None, RuntimeError("backend unavailable"))
             return
         if not type(self).emit_responses:
             return
-        self.callback(_FakeResult(np.array([[b"token"]], dtype=object)), None)
+        token = b"\xff" if type(self).emit_invalid_utf8 else b"token"
+        self.callback(_FakeResult(np.array([[token]], dtype=object)), None)
         self.callback(_FakeResult(None, final=True), None)
 
     def stop_stream(self, cancel_requests=False):
-        pass
+        type(self).stop_event.set()
 
     def close(self):
         pass
@@ -89,8 +95,11 @@ def fake_grpc_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "tritonclient.grpc", grpc_module)
     _FakeInferenceServerClient.emit_responses = True
     _FakeInferenceServerClient.emit_error = False
+    _FakeInferenceServerClient.emit_invalid_utf8 = False
     _FakeInferenceServerClient.last_request = None
     _FakeInferenceServerClient.last_headers = None
+    _FakeInferenceServerClient.stop_event = threading.Event()
+    _FakeInferenceServerClient.request_started = threading.Event()
 
 
 def test_template_stream_decodes_nested_byte_output():
@@ -170,4 +179,39 @@ def test_async_stream_exposes_backend_failure_as_future_exception():
     assert tokens == []
     assert len(errors) == 1
     assert "Streaming inference failed" in str(errors[0])
+    client.close()
+
+
+def test_callback_decode_failure_is_reported_without_waiting_for_timeout():
+    _FakeInferenceServerClient.emit_invalid_utf8 = True
+    client = TritonStreamingClient(TritonConfig(timeout=1))
+
+    with pytest.raises(RuntimeError, match="Streaming inference failed"):
+        list(client.stream_infer("decoupled_streaming", "hello"))
+
+    client.close()
+
+
+def test_cancelling_async_future_stops_the_inflight_stream():
+    _FakeInferenceServerClient.emit_responses = False
+    client = TritonStreamingClient(TritonConfig(timeout=10))
+    completion = client.stream_infer_async("decoupled_streaming", "hello")
+
+    assert _FakeInferenceServerClient.request_started.wait(timeout=1)
+    assert completion.cancel() is True
+    assert _FakeInferenceServerClient.stop_event.wait(timeout=1)
+    assert completion.cancelled()
+
+    client.close()
+
+
+def test_async_stream_validates_inputs_before_starting_a_worker():
+    client = TritonStreamingClient(TritonConfig(timeout=1))
+
+    with pytest.raises(ValueError, match="positive integer"):
+        client.stream_infer_async("decoupled_streaming", "hello", max_tokens=0)
+    with pytest.raises(TypeError, match="prompt"):
+        client.stream_infer("decoupled_streaming", b"hello")
+
+    assert not _FakeInferenceServerClient.request_started.is_set()
     client.close()

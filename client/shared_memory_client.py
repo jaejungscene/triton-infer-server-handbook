@@ -30,11 +30,18 @@ Shared Memory Client — CPU/CUDA 공유 메모리 클라이언트
 """
 
 import logging
+import math
 import uuid
 
 import numpy as np
 
-from .base import TritonConfig, http_ssl_context, numpy_to_triton_dtype
+from .base import (
+    TritonConfig,
+    collect_numpy_outputs,
+    http_ssl_context,
+    numpy_to_triton_dtype,
+    validate_numpy_request,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +77,15 @@ class TritonSHMClient:
 
         self._registered_regions: list[str] = []
         self._region_handles: dict[str, object] = {}
+        self._closed = False
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("shared-memory client is closed")
+
+    def _track_region(self, region_name: str, shm_handle: object) -> None:
+        self._registered_regions.append(region_name)
+        self._region_handles[region_name] = shm_handle
 
     def infer_with_shm(
         self,
@@ -81,14 +97,36 @@ class TritonSHMClient:
         model_version: str = "",
     ) -> dict[str, np.ndarray]:
         """Shared Memory를 사용한 추론"""
-
-        missing_shapes = set(output_names) - set(output_shapes)
-        missing_dtypes = set(output_names) - set(output_dtypes)
-        if missing_shapes or missing_dtypes:
+        self._ensure_open()
+        validate_numpy_request(model_name, input_data, output_names)
+        if set(output_shapes) != set(output_names) or set(output_dtypes) != set(
+            output_names
+        ):
             raise ValueError(
-                f"Missing output metadata: shapes={sorted(missing_shapes)}, "
-                f"dtypes={sorted(missing_dtypes)}"
+                "Output metadata keys must exactly match output_names: "
+                f"shapes={sorted(output_shapes)}, dtypes={sorted(output_dtypes)}"
             )
+
+        prepared_inputs = {}
+        for name, data in input_data.items():
+            self._numpy_to_triton_dtype(data.dtype)
+            prepared_inputs[name] = np.ascontiguousarray(data)
+
+        output_byte_sizes = {}
+        for name in output_names:
+            shape = output_shapes[name]
+            if not isinstance(shape, (tuple, list)) or not all(
+                isinstance(dimension, int)
+                and not isinstance(dimension, bool)
+                and dimension > 0
+                for dimension in shape
+            ):
+                raise ValueError(
+                    f"Output {name} shape must contain only positive integer dimensions"
+                )
+            dtype = np.dtype(output_dtypes[name])
+            self._numpy_to_triton_dtype(dtype)
+            output_byte_sizes[name] = math.prod(shape) * dtype.itemsize
 
         inputs = []
         outputs = []
@@ -97,8 +135,7 @@ class TritonSHMClient:
 
         try:
             # ── Input SHM 등록 ──
-            for index, (name, data) in enumerate(input_data.items()):
-                data = np.ascontiguousarray(data)
+            for index, (name, data) in enumerate(prepared_inputs.items()):
                 region_name = f"{request_prefix}_input_{index}"
                 byte_size = data.nbytes
                 if byte_size <= 0:
@@ -108,16 +145,16 @@ class TritonSHMClient:
                     shm_handle = self._shm.create_shared_memory_region(
                         region_name, byte_size, 0
                     )
+                    self._track_region(region_name, shm_handle)
+                    request_regions.append(region_name)
                     self._shm.set_shared_memory_region(shm_handle, [data])
                 else:
                     shm_handle = self._shm.create_shared_memory_region(
                         region_name, f"/{region_name}", byte_size
                     )
+                    self._track_region(region_name, shm_handle)
+                    request_regions.append(region_name)
                     self._shm.set_shared_memory_region(shm_handle, [data])
-
-                self._registered_regions.append(region_name)
-                self._region_handles[region_name] = shm_handle
-                request_regions.append(region_name)
 
                 if self.use_cuda:
                     self._client.register_cuda_shared_memory(
@@ -146,9 +183,7 @@ class TritonSHMClient:
                 region_name = f"{request_prefix}_output_{index}"
                 shape = output_shapes[name]
                 dtype = output_dtypes[name]
-                byte_size = int(np.prod(shape) * np.dtype(dtype).itemsize)
-                if byte_size <= 0:
-                    raise ValueError(f"Output {name} must have a positive byte size")
+                byte_size = output_byte_sizes[name]
 
                 if self.use_cuda:
                     shm_handle = self._shm.create_shared_memory_region(
@@ -159,8 +194,7 @@ class TritonSHMClient:
                         region_name, f"/{region_name}", byte_size
                     )
 
-                self._registered_regions.append(region_name)
-                self._region_handles[region_name] = shm_handle
+                self._track_region(region_name, shm_handle)
                 request_regions.append(region_name)
 
                 if self.use_cuda:
@@ -191,13 +225,12 @@ class TritonSHMClient:
                 headers=self.config.headers,
             )
 
-            copied_outputs = {}
-            for name in output_names:
-                output = result.as_numpy(name)
-                if output is None:
-                    raise RuntimeError(f"Triton response is missing output {name}")
-                copied_outputs[name] = output.copy()
-            return copied_outputs
+            return {
+                name: output.copy()
+                for name, output in collect_numpy_outputs(
+                    result, output_names
+                ).items()
+            }
         finally:
             self._cleanup_regions(request_regions)
 
@@ -246,12 +279,16 @@ class TritonSHMClient:
 
     def close(self):
         """SHM 영역과 Triton HTTP client를 정리"""
+        if self._closed:
+            return
+        self._closed = True
         self.cleanup()
         if self._client and hasattr(self._client, "close"):
             try:
                 self._client.close()
             except Exception as close_exc:
                 _LOGGER.debug("Failed to close Triton shared memory client: %s", close_exc)
+        self._client = None
 
     def __del__(self):
         try:

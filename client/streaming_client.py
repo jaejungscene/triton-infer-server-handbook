@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import Future
 from queue import Empty, Queue
@@ -31,6 +32,8 @@ class TritonStreamingClient:
             **grpc_tls_kwargs(self.config),
         )
         self._stream_lock = threading.Lock()
+        self._async_state_lock = threading.Lock()
+        self._async_cancel_events: set[threading.Event] = set()
         self._closed = False
 
     @staticmethod
@@ -53,6 +56,7 @@ class TritonStreamingClient:
         inputs: list,
         output_name: str,
         model_version: str,
+        cancel_event: threading.Event | None = None,
     ) -> Iterator[str]:
         if self._closed:
             raise RuntimeError("streaming client is closed")
@@ -60,20 +64,28 @@ class TritonStreamingClient:
         events: Queue[tuple[str, object]] = Queue()
 
         def response_callback(result, error):
-            if error is not None:
-                events.put(("error", error))
-                return
-            if result is None:
-                events.put(("final", None))
-                return
+            try:
+                if error is not None:
+                    events.put(("error", error))
+                    return
+                if result is None:
+                    events.put(("final", None))
+                    return
 
-            output = result.as_numpy(output_name)
-            if output is not None and output.size:
-                events.put(("token", self._decode_token(output)))
-            if self._is_final(result):
-                events.put(("final", None))
+                output = result.as_numpy(output_name)
+                if output is not None and output.size:
+                    events.put(("token", self._decode_token(output)))
+                if self._is_final(result):
+                    events.put(("final", None))
+            except Exception as exc:
+                events.put(("error", exc))
 
-        with self._stream_lock:
+        while not self._stream_lock.acquire(timeout=0.1):
+            if cancel_event is not None and cancel_event.is_set():
+                return
+        try:
+            if cancel_event is not None and cancel_event.is_set():
+                return
             self._client.start_stream(
                 callback=response_callback,
                 headers=self.config.headers,
@@ -87,14 +99,19 @@ class TritonStreamingClient:
                     enable_empty_final_response=True,
                 )
 
-                while True:
-                    try:
-                        event, payload = events.get(timeout=self.config.timeout)
-                    except Empty as exc:
+                idle_deadline = time.monotonic() + self.config.timeout
+                while cancel_event is None or not cancel_event.is_set():
+                    remaining = idle_deadline - time.monotonic()
+                    if remaining <= 0:
                         raise TimeoutError(
                             f"No streaming response received for {self.config.timeout}s"
-                        ) from exc
+                        )
+                    try:
+                        event, payload = events.get(timeout=min(0.1, remaining))
+                    except Empty:
+                        continue
 
+                    idle_deadline = time.monotonic() + self.config.timeout
                     if event == "error":
                         raise RuntimeError(f"Streaming inference failed: {payload}")
                     if event == "final":
@@ -105,6 +122,8 @@ class TritonStreamingClient:
                     self._client.stop_stream(cancel_requests=True)
                 except TypeError:
                     self._client.stop_stream()
+        finally:
+            self._stream_lock.release()
 
     def stream_infer(
         self,
@@ -114,8 +133,7 @@ class TritonStreamingClient:
         model_version: str = "",
     ) -> Iterator[str]:
         """Stream from the repository's decoupled_streaming Python template."""
-        if max_tokens <= 0:
-            raise ValueError("max_tokens must be greater than zero")
+        self._validate_stream_inputs(model_name, prompt, max_tokens)
 
         text_input = self._grpcclient.InferInput("INPUT_TEXT", [1, 1], "BYTES")
         text_input.set_data_from_numpy(np.array([[prompt]], dtype=object))
@@ -137,8 +155,7 @@ class TritonStreamingClient:
         model_version: str = "",
     ) -> Iterator[str]:
         """Stream from the vLLM backend contract in models/serving/nlp/llm."""
-        if max_tokens <= 0:
-            raise ValueError("max_tokens must be greater than zero")
+        self._validate_stream_inputs(model_name, prompt, max_tokens)
 
         parameters = dict(sampling_parameters or {})
         parameters["max_tokens"] = max_tokens
@@ -170,33 +187,84 @@ class TritonStreamingClient:
         model_version: str = "",
     ) -> Future[None]:
         """Consume a stream on a worker and expose completion or failure as a Future."""
+        self._validate_stream_inputs(model_name, prompt, max_tokens)
         token_callback = callback or (lambda token, is_final: None)
         completion: Future[None] = Future()
+        cancel_event = threading.Event()
+        with self._async_state_lock:
+            if self._closed:
+                raise RuntimeError("streaming client is closed")
+            self._async_cancel_events.add(cancel_event)
+
+        def observe_completion(future):
+            if future.cancelled():
+                cancel_event.set()
+
+        completion.add_done_callback(observe_completion)
 
         def consume():
             try:
-                for token in self.stream_infer(
-                    model_name, prompt, max_tokens, model_version
+                text_input = self._grpcclient.InferInput(
+                    "INPUT_TEXT", [1, 1], "BYTES"
+                )
+                text_input.set_data_from_numpy(np.array([[prompt]], dtype=object))
+                token_input = self._grpcclient.InferInput(
+                    "MAX_TOKENS", [1, 1], "INT32"
+                )
+                token_input.set_data_from_numpy(
+                    np.array([[max_tokens]], dtype=np.int32)
+                )
+                for token in self._stream_request(
+                    model_name,
+                    [text_input, token_input],
+                    "OUTPUT_TOKEN",
+                    model_version,
+                    cancel_event,
                 ):
+                    if cancel_event.is_set():
+                        return
                     token_callback(token, False)
-                token_callback("", True)
-                completion.set_result(None)
+                if not cancel_event.is_set() and not completion.done():
+                    token_callback("", True)
+                    completion.set_result(None)
             except Exception as exc:
+                if cancel_event.is_set() or completion.cancelled():
+                    return
                 if error_callback is not None:
                     try:
                         error_callback(exc)
                     except Exception:
                         _LOGGER.exception("Streaming error callback failed")
-                completion.set_exception(exc)
+                if not completion.done():
+                    completion.set_exception(exc)
+            finally:
+                with self._async_state_lock:
+                    self._async_cancel_events.discard(cancel_event)
 
         thread = threading.Thread(target=consume, daemon=True)
         thread.start()
         return completion
 
+    @staticmethod
+    def _validate_stream_inputs(model_name: str, prompt: str, max_tokens: int) -> None:
+        if not isinstance(model_name, str) or not model_name.strip():
+            raise ValueError("model_name must be a non-empty string")
+        if not isinstance(prompt, str):
+            raise TypeError("prompt must be a string")
+        if (
+            not isinstance(max_tokens, int)
+            or isinstance(max_tokens, bool)
+            or max_tokens <= 0
+        ):
+            raise ValueError("max_tokens must be a positive integer")
+
     def close(self):
         if self._closed:
             return
         self._closed = True
+        with self._async_state_lock:
+            for cancel_event in self._async_cancel_events:
+                cancel_event.set()
         try:
             self._client.stop_stream(cancel_requests=True)
         except (TypeError, RuntimeError):

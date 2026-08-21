@@ -10,7 +10,7 @@ import pytest
 class TestLLMStreaming:
     """LLM Decoupled Streaming 통합 테스트"""
 
-    def test_streaming_inference(self, triton_grpc_url):
+    def test_streaming_inference(self, triton_grpc_url, triton_headers):
         """스트리밍 추론 E2E 테스트"""
         try:
             from client.streaming_client import TritonStreamingClient
@@ -18,11 +18,13 @@ class TestLLMStreaming:
         except ImportError:
             pytest.skip("client module not available")
 
-        config = TritonConfig(grpc_url=triton_grpc_url)
+        config = TritonConfig(grpc_url=triton_grpc_url, headers=triton_headers)
         client = TritonStreamingClient(config)
 
         try:
-            if not client._client.is_model_ready("llm_vllm"):
+            if not client._client.is_model_ready(
+                "llm_vllm", headers=triton_headers
+            ):
                 pytest.skip("llm_vllm model not loaded")
         except Exception as exc:
             pytest.fail(f"Cannot connect to Triton gRPC: {exc}")
@@ -39,7 +41,7 @@ class TestLLMStreaming:
 
         assert len(tokens) > 0, "No tokens received"
 
-    def test_decoupled_model_config(self, triton_grpc_url):
+    def test_decoupled_model_config(self, triton_grpc_url, triton_headers):
         """Decoupled 모델이 올바르게 설정되었는지 확인"""
         try:
             import tritonclient.grpc as grpcclient
@@ -49,12 +51,15 @@ class TestLLMStreaming:
         client = grpcclient.InferenceServerClient(url=triton_grpc_url)
 
         try:
-            model_ready = client.is_model_ready("llm_vllm")
+            model_ready = client.is_model_ready(
+                "llm_vllm", headers=triton_headers
+            )
         except Exception as exc:
             pytest.fail(f"Cannot connect to Triton gRPC: {exc}")
         if not model_ready:
             pytest.skip("llm_vllm model not loaded")
 
-        config = client.get_model_config("llm_vllm")
+        config = client.get_model_config("llm_vllm", headers=triton_headers)
         # Decoupled 모델은 model_transaction_policy.decoupled = true
         assert config.config.model_transaction_policy.decoupled is True
+        client.close()

@@ -384,6 +384,29 @@ class TestDeploymentRuntimeArgs:
         assert constraints[0]["topologyKey"] == "kubernetes.io/hostname"
         assert constraints[0]["whenUnsatisfiable"] == "DoNotSchedule"
 
+    def test_staging_has_pdb_and_best_effort_topology_spread(self, project_root):
+        staging_dir = os.path.join(
+            project_root, "deploy", "k8s", "overlays", "staging"
+        )
+        kustomization = self._load_yaml(
+            os.path.join(staging_dir, "kustomization.yaml")
+        )
+        assert "pdb.yaml" in kustomization["resources"]
+
+        pdb = self._load_yaml(os.path.join(staging_dir, "pdb.yaml"))
+        assert pdb["spec"]["minAvailable"] == 1
+        assert pdb["spec"]["selector"]["matchLabels"]["app"] == \
+            "triton-server"
+
+        replica_patch = self._load_yaml(
+            os.path.join(staging_dir, "replica_patch.yaml")
+        )
+        constraint = replica_patch["spec"]["template"]["spec"][
+            "topologySpreadConstraints"
+        ][0]
+        assert constraint["topologyKey"] == "kubernetes.io/hostname"
+        assert constraint["whenUnsatisfiable"] == "ScheduleAnyway"
+
     def test_restricted_namespaces_enforce_pod_security_baseline(self, project_root):
         overlays_dir = os.path.join(project_root, "deploy", "k8s", "overlays")
         for environment in ("staging", "prod"):
@@ -402,15 +425,37 @@ class TestDeploymentRuntimeArgs:
 
         prod_dir = os.path.join(project_root, "deploy", "k8s", "overlays", "prod")
         prod = self._load_yaml(os.path.join(prod_dir, "kustomization.yaml"))
-        assert "../../ingress" in prod.get("resources", [])
+        assert "../../ingress" not in prod.get("resources", [])
+        assert not any(
+            "ingress" in patch.get("path", "")
+            for patch in prod.get("patches", [])
+        )
+
+        ingress_overlay_dir = os.path.join(
+            project_root, "deploy", "k8s", "overlays", "prod-ingress"
+        )
+        ingress_overlay = self._load_yaml(
+            os.path.join(ingress_overlay_dir, "kustomization.yaml")
+        )
+        assert {"../prod", "../../ingress"}.issubset(
+            set(ingress_overlay["resources"])
+        )
 
         for filename in ("ingress_http_patch.yaml", "ingress_grpc_patch.yaml"):
-            patch = self._load_yaml(os.path.join(prod_dir, filename))
+            patch = self._load_yaml(os.path.join(ingress_overlay_dir, filename))
             annotations = patch["metadata"]["annotations"]
             assert annotations["nginx.ingress.kubernetes.io/ssl-redirect"] == "true"
             assert annotations["nginx.ingress.kubernetes.io/auth-type"] == "basic"
             assert annotations["nginx.ingress.kubernetes.io/auth-secret"] == \
                 "triton-ingress-basic-auth"
+
+        production_workflow = os.path.join(
+            project_root, ".github", "workflows", "cd-production.yml"
+        )
+        with open(production_workflow) as workflow_file:
+            workflow = workflow_file.read()
+        assert "deploy/k8s/overlays/prod-ingress" not in workflow
+        assert "deploy/k8s/overlays/prod" in workflow
 
     def test_http_and_grpc_use_separate_ingresses(self, project_root):
         ingress_dir = os.path.join(project_root, "deploy", "k8s", "ingress")
@@ -577,7 +622,14 @@ class TestReleaseWorkflow:
             workflow = workflow_file.read()
 
         assert "name: Unit Tests" in workflow
-        assert "pytest tests/client/ tests/scripts/ tests/perf/" in workflow
+        assert (
+            "pytest tests/models/ tests/client/ tests/scripts/ tests/perf/"
+            in workflow
+        )
+        assert (
+            "ruff check models/ client/ tests/ scripts/ --select E,W,F --ignore E501"
+            in workflow
+        )
 
     def test_deployment_workflows_explicitly_enable_live_tests(self, project_root):
         workflow_expectations = {
@@ -813,6 +865,37 @@ class TestImmutableModelRelease:
                 source = dockerfile.read()
             assert "ARG TRITON_IMAGE=" in source
             assert "FROM ${TRITON_IMAGE}" in source
+
+    def test_production_support_images_are_digest_pinned(self, project_root):
+        compose_path = os.path.join(
+            project_root, "deploy", "docker", "docker-compose.prod.yml"
+        )
+        with open(compose_path) as compose_file:
+            compose = compose_file.read()
+
+        image_pattern = re.compile(
+            r"^\s+image: "
+            r"((?:redis|prom/prometheus|grafana/grafana):[^@\s]+"
+            r"@sha256:[0-9a-f]{64})$",
+            re.MULTILINE,
+        )
+        support_images = image_pattern.findall(compose)
+        assert len(support_images) == 3
+        assert {image.split(":", 1)[0] for image in support_images} == {
+            "redis",
+            "prom/prometheus",
+            "grafana/grafana",
+        }
+
+        prometheus_image = next(
+            image for image in support_images if image.startswith("prom/prometheus:")
+        )
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-validate.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+        assert workflow.count(prometheus_image) == 3
 
     def test_ci_smoke_tests_the_bundled_repository(self, project_root):
         workflow_path = os.path.join(

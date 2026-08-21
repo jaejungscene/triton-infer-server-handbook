@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: production
+
+resources:
+  - ../prod
+  - ../../ingress
+
+patches:
+  - path: ingress_http_patch.yaml
+  - path: ingress_grpc_patch.yaml

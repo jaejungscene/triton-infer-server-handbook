@@ -16,16 +16,19 @@ class TestVisionPipeline:
         """테스트용 더미 이미지 (640x640x3)"""
         return np.random.randint(0, 255, (1, 640, 640, 3), dtype=np.uint8)
 
-    def test_pipeline_inference(self, triton_url, sample_image):
+    def test_pipeline_inference(self, triton_url, triton_headers, sample_image):
         """Ensemble Pipeline 추론 E2E 테스트"""
         try:
             import tritonclient.http as httpclient
         except ImportError:
             pytest.skip("tritonclient not installed")
 
-        client = httpclient.InferenceServerClient(url=triton_url.replace("http://", ""))
+        client = httpclient.InferenceServerClient(
+            url=triton_url.split("://", 1)[-1],
+            ssl=triton_url.startswith("https://"),
+        )
 
-        if not client.is_model_ready("od_pipeline"):
+        if not client.is_model_ready("od_pipeline", headers=triton_headers):
             pytest.skip("od_pipeline model not loaded")
 
         input_tensor = httpclient.InferInput("RAW_IMAGE", list(sample_image.shape), "UINT8")
@@ -38,7 +41,9 @@ class TestVisionPipeline:
             httpclient.InferRequestedOutput("NUM_DETECTIONS"),
         ]
 
-        result = client.infer("od_pipeline", [input_tensor], outputs)
+        result = client.infer(
+            "od_pipeline", [input_tensor], outputs, headers=triton_headers
+        )
 
         bboxes = result.as_numpy("BBOXES")
         scores = result.as_numpy("SCORES")
@@ -51,16 +56,19 @@ class TestVisionPipeline:
         assert counts.shape == (1, 1)
         assert 0 <= counts[0, 0] <= 100
 
-    def test_preprocessor_standalone(self, triton_url, sample_image):
+    def test_preprocessor_standalone(self, triton_url, triton_headers, sample_image):
         """전처리 모델 단독 테스트"""
         try:
             import tritonclient.http as httpclient
         except ImportError:
             pytest.skip("tritonclient not installed")
 
-        client = httpclient.InferenceServerClient(url=triton_url.replace("http://", ""))
+        client = httpclient.InferenceServerClient(
+            url=triton_url.split("://", 1)[-1],
+            ssl=triton_url.startswith("https://"),
+        )
 
-        if not client.is_model_ready("od_preprocessor"):
+        if not client.is_model_ready("od_preprocessor", headers=triton_headers):
             pytest.skip("od_preprocessor model not loaded")
 
         input_tensor = httpclient.InferInput("RAW_IMAGE", list(sample_image.shape), "UINT8")
@@ -68,7 +76,9 @@ class TestVisionPipeline:
 
         outputs = [httpclient.InferRequestedOutput("PREPROCESSED_IMAGE")]
 
-        result = client.infer("od_preprocessor", [input_tensor], outputs)
+        result = client.infer(
+            "od_preprocessor", [input_tensor], outputs, headers=triton_headers
+        )
         preprocessed = result.as_numpy("PREPROCESSED_IMAGE")
 
         assert preprocessed.dtype == np.float32

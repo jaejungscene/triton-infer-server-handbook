@@ -4,6 +4,12 @@ import os
 import yaml
 
 
+RUNBOOK_URL = (
+    "https://github.com/jaejungscene/triton-infer-server-handbook/"
+    "blob/main/docs/runbook.md"
+)
+
+
 def test_prometheus_rules_do_not_clamp_low_traffic_denominators(project_root):
     rules_path = os.path.join(
         project_root, "monitoring", "prometheus", "triton_rules.yml"
@@ -44,6 +50,39 @@ def test_missing_metrics_rule_tracks_the_required_production_environment(project
         'up{service="triton",environment="production"}'
         in missing_rule["expr"]
     )
+
+
+def test_alerts_include_routing_context_and_runbook(project_root):
+    rules_path = os.path.join(
+        project_root, "monitoring", "prometheus", "triton_rules.yml"
+    )
+    with open(rules_path) as rules_file:
+        groups = yaml.safe_load(rules_file)["groups"]
+
+    alerts = {
+        rule["alert"]: rule
+        for group in groups
+        for rule in group["rules"]
+        if "alert" in rule
+    }
+    assert len(alerts) == 7
+    for rule in alerts.values():
+        annotations = rule["annotations"]
+        assert annotations["runbook_url"] == RUNBOOK_URL
+        assert "$labels.environment" in annotations["summary"]
+
+    for alert_name in (
+        "TritonGPUHighUtilization",
+        "TritonGPUMemoryHigh",
+        "TritonServerDown",
+    ):
+        assert "$labels.instance" in alerts[alert_name]["annotations"]["summary"]
+
+    for alert_name in ("TritonGPUHighUtilization", "TritonGPUMemoryHigh"):
+        assert (
+            "$labels.gpu_uuid"
+            in alerts[alert_name]["annotations"]["description"]
+        )
 
 
 def test_dashboard_only_uses_metrics_exported_by_default(project_root):

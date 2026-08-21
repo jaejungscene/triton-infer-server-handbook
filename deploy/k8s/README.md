@@ -10,12 +10,13 @@ k8s/
 │   └── kustomization.yaml
 ├── components/
 │   └── model-pvc/       # 외부 공유 repository를 선택할 때만 추가
-├── ingress/             # prod overlay만 선택하는 HTTP/gRPC Ingress
+├── ingress/             # 외부 HTTP/gRPC allowlist 리소스
 └── overlays/
     ├── dev/             # replicas=1, resource 최소
     ├── dev-pvc/         # 외부 PVC component 조합 예시
-    ├── staging/         # replicas=2
-    ├── prod/            # replicas=3+, resource 최대, HPA
+    ├── staging/         # replicas=2, PDB, best-effort topology spread
+    ├── prod/            # 내부 ClusterIP, replicas=3+, HPA, PDB
+    ├── prod-ingress/    # hostname·TLS·인증 확인 후 명시적으로 선택
     ├── multi-gpu/       # 단일 노드 multi-GPU
     └── multi-node/      # 멀티 노드 + HPA + PDB
 ```
@@ -29,14 +30,18 @@ k8s/
 # Dev
 kubectl apply -k deploy/k8s/overlays/dev
 
-# Production
+# Production 내부 service (CD 기본 경로)
+kubectl apply -k deploy/k8s/overlays/prod
+
+# 외부 Ingress가 필요할 때만 사용
+# 먼저 ingress/*.yaml과 prod-ingress/*_patch.yaml의 example.com host를 실제 값으로 바꿉니다.
 kubectl apply -f deploy/k8s/overlays/prod/namespace.yaml
 htpasswd -c auth triton-client
 kubectl create secret generic triton-ingress-basic-auth \
   --from-file=auth --namespace production
 kubectl create secret tls triton-tls-secret \
   --cert=path/to/tls.crt --key=path/to/tls.key --namespace production
-kubectl apply -k deploy/k8s/overlays/prod
+kubectl apply -k deploy/k8s/overlays/prod-ingress
 
 # 상태 확인
 kubectl get pods -n production -l app=triton-server
@@ -51,10 +56,11 @@ kubectl port-forward -n production svc/triton-server 8000:8000 8001:8001 8002:80
 | 결정 | 선택 | 이유 |
 |------|------|------|
 | Service 타입 | ClusterIP | 클러스터 내부 안정 주소를 제공하고, 외부 노출은 Ingress/LB에서 분리 |
-| Ingress | prod에서만 opt-in, HTTP/gRPC 분리 | dev의 우발적 외부 노출을 막고 protocol별 정책을 독립 적용 |
+| Ingress | `prod-ingress`로 명시적 opt-in, HTTP/gRPC 분리 | placeholder host의 자동 배포와 dev의 우발적 외부 노출을 차단 |
 | 외부 인증 | TLS + basic auth 기본선 | Triton 자체에 tenant 인증이 없고 repository control API도 같은 port에 있기 때문 |
 | rollout | `maxUnavailable: 0`, startup probe | 모델 로딩 중 재시작을 막고 기존 replica를 유지한 채 교체 |
 | 종료 | 10초 preStop + 60초 grace period | endpoint 전파와 진행 중 요청 종료 시간을 확보 |
+| staging 가용성 | PDB min 1 + best-effort 노드 분산 | drain 중 1개 Pod를 유지하되 GPU 부족으로 검증이 막히지 않게 함 |
 | Pod 권한 | SA token 미마운트, capability 제거 | Kubernetes API와 Linux capability가 필요 없는 추론 Pod의 공격 표면 축소 |
 | NetworkPolicy | staging/prod ingress 제한 | prod는 ingress controller와 monitoring만 허용하고 staging만 같은 namespace 접근 허용 |
 | 모델 전달 | image에 `/models` 포함 | server 코드·의존성·모델을 한 SHA로 승격하고 rollback 단순화 |
@@ -112,15 +118,20 @@ GPU 사용률이나 Triton queue time으로 확장하려면 Prometheus Adapter/K
 이름과 단위를 staging에서 검증한 뒤 HPA `metrics`를 교체합니다. DCGM exporter metric 이름을
 adapter 설정 없이 HPA에 직접 적는 것만으로는 autoscaling이 동작하지 않습니다.
 
-prod는 `topologySpreadConstraints`를 `kubernetes.io/hostname` 기준 `DoNotSchedule`로 적용해
-가용한 GPU 노드 사이의 replica 편중을 막습니다. GPU 노드가 부족하면 일부 Pod가 Pending인
-것이 정상적인 보호 동작이므로, 배포 전 `minReplicas`를 수용할 GPU·CPU·메모리 capacity와
-cluster autoscaler의 확장 한도를 확인해야 합니다. staging/prod namespace는 Pod Security
-baseline을 enforce하고 restricted 위반을 audit/warn합니다. NVIDIA runtime image를 non-root와
-read-only root filesystem으로 검증한 뒤 restricted enforce로 올리는 것을 승격 조건으로 둡니다.
+staging은 hostname 기준 `ScheduleAnyway` 분산과 `minAvailable: 1` PDB를 적용합니다. 가능한
+GPU 노드에는 Pod를 나누고 drain 중 최소 1개를 유지하지만, 노드가 하나뿐이어도 검증 배포를
+막지는 않습니다. prod는 같은 기준을 `DoNotSchedule`로 강제하므로 GPU 노드가 부족하면 일부
+Pod가 Pending인 것이 정상적인 보호 동작입니다. 배포 전 `minReplicas`를 수용할 GPU·CPU·메모리
+capacity와 cluster autoscaler의 확장 한도를 확인해야 합니다. staging/prod namespace는 Pod
+Security baseline을 enforce하고 restricted 위반을 audit/warn합니다. NVIDIA runtime image를
+non-root와 read-only root filesystem으로 검증한 뒤 restricted enforce로 올리는 것을 승격
+조건으로 둡니다.
 
-production Ingress는 `triton-ingress-basic-auth` Secret이 없으면 정상 인증을 구성할 수 없도록
-의도했습니다. HTTP는 `/v2`, health, `/v2/models/*`만, gRPC는 상태·metadata·statistics·infer
+기본 `prod` overlay와 production CD는 Ingress를 만들지 않습니다. 외부 노출이 필요한 환경만
+`ingress/*.yaml`과 `prod-ingress/*_patch.yaml`의 `example.com` host를 모두 실제 DNS로 바꾸고,
+TLS·인증 Secret을 만든 뒤 `prod-ingress`를 적용합니다. 이 overlay는
+`triton-ingress-basic-auth` Secret이 없으면 정상 인증을 구성할 수 없도록 의도했습니다.
+HTTP는 `/v2`, health, `/v2/models/*`만, gRPC는 상태·metadata·statistics·infer
 메서드만 allowlist합니다. repository load/unload, trace 설정, system/CUDA shared-memory 등록은
 외부 Ingress에서 404가 정상입니다. 운영 API는 RBAC로 통제된 작업자가 `kubectl port-forward`
 또는 별도 내부 관리 gateway로 호출합니다. `SharedMemoryTritonClient`도 신뢰된 내부 endpoint에서만

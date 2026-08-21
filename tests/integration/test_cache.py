@@ -26,8 +26,12 @@ def _model_metric_value(metrics: str, metric_name: str, model_name: str) -> floa
     return total
 
 
-def _read_cache_counters(metrics_url: str, model_name: str) -> tuple[float, float]:
-    response = requests.get(f"{metrics_url.rstrip('/')}/metrics", timeout=10)
+def _read_cache_counters(
+    metrics_url: str, model_name: str, headers: dict[str, str]
+) -> tuple[float, float]:
+    response = requests.get(
+        f"{metrics_url.rstrip('/')}/metrics", headers=headers, timeout=10
+    )
     response.raise_for_status()
     return (
         _model_metric_value(
@@ -39,7 +43,12 @@ def _read_cache_counters(metrics_url: str, model_name: str) -> tuple[float, floa
     )
 
 
-def test_required_model_records_cache_miss_then_hit(triton_url, triton_metrics_url):
+def test_required_model_records_cache_miss_then_hit(
+    triton_url,
+    triton_metrics_url,
+    triton_headers,
+    triton_metrics_headers,
+):
     try:
         import tritonclient.http as httpclient
     except ImportError:
@@ -55,9 +64,11 @@ def test_required_model_records_cache_miss_then_hit(triton_url, triton_metrics_u
         ssl=ssl_enabled,
     )
     try:
-        assert client.is_model_ready(model_name), f"required model {model_name} is not ready"
+        assert client.is_model_ready(
+            model_name, headers=triton_headers
+        ), f"required model {model_name} is not ready"
         hits_before, misses_before = _read_cache_counters(
-            triton_metrics_url, model_name
+            triton_metrics_url, model_name, triton_metrics_headers
         )
 
         unique_text = np.array([[f"cache-contract-{uuid.uuid4().hex}"]], dtype=object)
@@ -70,8 +81,12 @@ def test_required_model_records_cache_miss_then_hit(triton_url, triton_metrics_u
             httpclient.InferRequestedOutput("CONFIDENCE"),
         ]
 
-        first = client.infer(model_name, [input_tensor], outputs)
-        second = client.infer(model_name, [input_tensor], outputs)
+        first = client.infer(
+            model_name, [input_tensor], outputs, headers=triton_headers
+        )
+        second = client.infer(
+            model_name, [input_tensor], outputs, headers=triton_headers
+        )
 
         np.testing.assert_array_equal(
             first.as_numpy("LABEL"), second.as_numpy("LABEL")
@@ -80,7 +95,7 @@ def test_required_model_records_cache_miss_then_hit(triton_url, triton_metrics_u
             first.as_numpy("CONFIDENCE"), second.as_numpy("CONFIDENCE")
         )
         hits_after, misses_after = _read_cache_counters(
-            triton_metrics_url, model_name
+            triton_metrics_url, model_name, triton_metrics_headers
         )
         assert hits_after >= hits_before + 1
         assert misses_after >= misses_before + 1

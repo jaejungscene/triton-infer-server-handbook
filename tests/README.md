@@ -79,3 +79,9 @@ CSV 값은 microsecond이므로 비교기가 millisecond로 변환합니다. 기
 | `TRITON_HTTP_URL` | `http://localhost:8000` | Triton HTTP endpoint |
 | `TRITON_GRPC_URL` | `localhost:8001` | Triton gRPC endpoint |
 | `TRITON_METRICS_URL` | HTTP URL에서 8002로 추론 | Triton Prometheus metrics endpoint |
+| `TRITON_AUTH_TOKEN` | 없음 | HTTP/gRPC health·metadata·inference Bearer token |
+| `TRITON_METRICS_AUTH_TOKEN` | inference token 사용 | metrics endpoint 전용 Bearer token |
+
+인증 token은 pytest 인수로 넘기지 않고 환경변수로 주입합니다. metrics gateway가 inference와
+다른 credential을 요구하면 `TRITON_METRICS_AUTH_TOKEN`을 별도로 설정합니다. 두 token 모두
+줄바꿈을 포함하면 header injection 위험으로 실행 전에 실패합니다.
