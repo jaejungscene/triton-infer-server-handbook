@@ -1,7 +1,7 @@
 # =============================================================================
 # CD Staging — Staging 자동 배포 + Integration Test
 # =============================================================================
-# Trigger: CI Build & Test 성공 후 자동
+# Trigger: 수동 GPU release 검증 성공 후 자동
 # =============================================================================
 
 name: CD - Staging
@@ -16,7 +16,7 @@ concurrency:
 
 on:
   workflow_run:
-    workflows: ["CI - Build & Test"]
+    workflows: ["CI - GPU Release"]
     types: [completed]
     branches: [main]
 

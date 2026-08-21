@@ -24,7 +24,7 @@ checksum을 별도 필수 identity로 추가합니다.
 ```mermaid
 flowchart LR
     pr["PR validation"] --> candidate["Candidate image digest"]
-    candidate --> contract["Runtime contract tests"]
+    candidate --> contract["Manual GPU runtime contract tests"]
     contract --> release["SHA release tag"]
     release --> staging["Staging rollout and integration"]
     staging --> approval["Production approval"]
@@ -49,8 +49,9 @@ flowchart LR
 
 1. PR에서 unit/config/Markdown, Kustomize, Helm, Compose, Prometheus rule을 검증합니다.
 2. main CI는 production 모델 세트를 한 번 build해 candidate digest를 만듭니다.
-3. candidate container를 production runtime flag로 실행해 health, 필수 모델 output, cache
-   miss/hit를 검증한 뒤에만 commit SHA tag를 같은 digest에 붙입니다.
+3. GPU runner가 준비된 시점에 수동 release workflow가 candidate container를 production runtime
+   flag로 실행해 health, 필수 모델 output, cache miss/hit를 검증한 뒤에만 commit SHA tag를
+   같은 digest에 붙입니다.
 4. staging은 그 digest를 배포하고 전체 integration suite를 실행합니다. 실패하면 직전 image를
    복원하되 image 외 manifest 변경은 이전 GitOps revision으로 별도 복원합니다.
 5. 승인자는 같은 SHA의 perf 결과와 아래 go/no-go 항목을 확인합니다.
@@ -64,7 +65,8 @@ flowchart LR
 | 단계 | 성공 증거 | 실패 시 상태 |
 |------|-----------|-------------|
 | PR | `ci-validate` 전체 성공 | merge 금지 |
-| candidate | runtime contract test 성공, candidate/release digest 동일 | SHA release tag 미생성 |
+| candidate | production 모델 세트를 포함한 image digest 기록 | candidate만 유지, 배포 금지 |
+| GPU release | runtime contract test 성공, candidate/release digest 동일 | SHA release tag 미생성 |
 | staging | rollout, readiness, integration 성공 | 직전 image 복원 또는 최초 배포 실패 명시 |
 | approval | 동일 SHA perf artifact, 변경·rollback 단위 확인 | production 실행 보류 |
 | production | Deployment image와 Pod `imageID` 일치, 필수 모델/cache gate 성공 | Deployment 자동 rollback |
@@ -78,7 +80,7 @@ release issue나 변경관리 시스템에 옮깁니다. kubeconfig, token, 고�
 
 다음 항목을 모두 만족할 때만 승인합니다.
 
-- 요청 SHA가 `origin/main`에 포함되고 candidate와 release tag의 registry digest가 같다.
+- 요청 SHA가 `origin/main`에 포함되고 GPU 검증을 거친 candidate와 release tag의 registry digest가 같다.
 - staging Deployment와 Pod가 같은 digest를 실행하며 integration test가 통과했다.
 - 필수 모델의 name, version, input/output dtype·shape가 client contract와 일치한다.
 - 같은 image SHA의 성능 결과가 합의한 throughput 하한과 p95 latency 상한을 만족한다.

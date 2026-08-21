@@ -69,10 +69,14 @@ Decoupled streaming 모델은 HTTP나 일반 gRPC infer가 아니라 bi-directio
 1. PR에서 `config.pbtxt`, Python backend, manifest를 검증합니다.
 2. CI가 모델 바이너리 또는 외부 artifact를 확보합니다.
 3. release CI는 `scripts/build.sh --env prod --clean`으로 production 모델 세트를 생성합니다.
-4. CI가 image를 candidate tag로 한 번 build/push하고 registry digest로 smoke test한 뒤 SHA release tag로 승격합니다.
-5. staging은 같은 production digest와 모델 세트를 explicit load하고 integration test를 수행합니다.
-6. 별도 GPU workflow에서 같은 revision의 perf baseline을 주간 또는 수동으로 비교합니다.
-7. production은 승인된 SHA가 가리키는 digest를 배포하고 실패 시 이전 release를 적용합니다.
+4. main CI가 GitHub-hosted runner에서 image를 candidate tag로 한 번 build/push합니다.
+5. 수동 GPU release workflow가 candidate registry digest를 smoke test한 뒤 SHA release tag로 승격합니다.
+6. staging은 같은 production digest와 모델 세트를 explicit load하고 integration test를 수행합니다.
+7. 별도 GPU workflow에서 같은 revision의 perf baseline을 수동으로 비교합니다.
+8. production은 승인된 SHA가 가리키는 digest를 배포하고 실패 시 이전 release를 적용합니다.
+
+GPU runner가 없으면 4단계에서 멈추는 것이 정상입니다. candidate tag는 build 결과를 보존할
+뿐 release identity가 아니며 staging과 production workflow는 SHA release tag만 허용합니다.
 
 이 저장소의 기본 production 단위는 server runtime과 model repository를 함께 담은 immutable
 image입니다. 모델이 수십 GB라 registry 전송 비용이 더 큰 환경은 PVC/object storage를 쓸 수

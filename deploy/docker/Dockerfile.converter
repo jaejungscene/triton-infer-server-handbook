@@ -7,6 +7,8 @@
 
 # Serving image와 같은 검증된 Triton runtime을 사용합니다.
 ARG TRITON_IMAGE=nvcr.io/nvidia/tritonserver:24.08-py3@sha256:0b6a7449ea6a46fd167376d40418b169ed82cd36addc6f6c56fe2cbda4294e13
+# hadolint cannot resolve the digest-pinned ARG default; config tests enforce it.
+# hadolint ignore=DL3006
 FROM ${TRITON_IMAGE}
 
 COPY requirements-converter.txt /tmp/requirements-converter.txt
