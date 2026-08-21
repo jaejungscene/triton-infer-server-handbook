@@ -384,6 +384,29 @@ class TestDeploymentRuntimeArgs:
         assert constraints[0]["topologyKey"] == "kubernetes.io/hostname"
         assert constraints[0]["whenUnsatisfiable"] == "DoNotSchedule"
 
+    def test_staging_has_pdb_and_best_effort_topology_spread(self, project_root):
+        staging_dir = os.path.join(
+            project_root, "deploy", "k8s", "overlays", "staging"
+        )
+        kustomization = self._load_yaml(
+            os.path.join(staging_dir, "kustomization.yaml")
+        )
+        assert "pdb.yaml" in kustomization["resources"]
+
+        pdb = self._load_yaml(os.path.join(staging_dir, "pdb.yaml"))
+        assert pdb["spec"]["minAvailable"] == 1
+        assert pdb["spec"]["selector"]["matchLabels"]["app"] == \
+            "triton-server"
+
+        replica_patch = self._load_yaml(
+            os.path.join(staging_dir, "replica_patch.yaml")
+        )
+        constraint = replica_patch["spec"]["template"]["spec"][
+            "topologySpreadConstraints"
+        ][0]
+        assert constraint["topologyKey"] == "kubernetes.io/hostname"
+        assert constraint["whenUnsatisfiable"] == "ScheduleAnyway"
+
     def test_restricted_namespaces_enforce_pod_security_baseline(self, project_root):
         overlays_dir = os.path.join(project_root, "deploy", "k8s", "overlays")
         for environment in ("staging", "prod"):
