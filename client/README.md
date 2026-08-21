@@ -56,7 +56,9 @@ stream은 취소합니다. 한 streaming client instance에서는 stream을 직�
 `stream_infer_async`는 정상 token callback과 오류를 섞지 않습니다. 반환된 `Future`의
 `result()`를 호출하면 성공 시 `None`, 실패 시 streaming 예외를 받습니다. UI 정리처럼
 즉시 오류 처리가 필요하면 `error_callback`도 지정하되 callback만 믿고 Future를 버리지
-않습니다.
+않습니다. Future의 `cancel()`은 worker의 stream 대기와 직렬화 lock 대기를 중단하고
+`stop_stream(cancel_requests=True)`로 진행 중 요청을 취소합니다. response callback에서 decode나
+protocol 처리가 실패해도 idle timeout으로 숨기지 않고 Future 또는 iterator에 즉시 전달합니다.
 
 ```python
 completion = client.stream_infer_async(
