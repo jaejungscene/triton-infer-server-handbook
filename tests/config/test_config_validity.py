@@ -633,7 +633,7 @@ class TestReleaseWorkflow:
 
     def test_deployment_workflows_explicitly_enable_live_tests(self, project_root):
         workflow_expectations = {
-            "ci-build-test.yml": (
+            "ci-gpu-release.yml": (
                 "tests/smoke/",
                 "--run-live",
             ),
@@ -666,7 +666,7 @@ class TestReleaseWorkflow:
             "- name: Auto-rollback on failure"
         )
 
-    def test_main_build_tests_the_published_digest(self, project_root):
+    def test_main_build_publishes_unpromoted_candidate(self, project_root):
         workflow_path = os.path.join(
             project_root, ".github", "workflows", "ci-build-test.yml"
         )
@@ -677,6 +677,32 @@ class TestReleaseWorkflow:
         assert "./scripts/build.sh --env dev --clean" not in workflow
         assert "- 'client/**'" in workflow
         assert "- 'tests/**'" in workflow
+        assert "runs-on: ubuntu-latest" in workflow
+        assert "self-hosted" not in workflow
+        assert "--gpus all" not in workflow
+        assert "docker buildx imagetools create" not in workflow
+        assert "Reclaim disk for Triton image build" in workflow
+        assert "cache-to: type=gha,mode=min" in workflow
+        assert "GPU 검증 전 candidate" in workflow
+        assert "id: build" in workflow
+        assert "push: true" in workflow
+        assert "${{ env.IMAGE_NAME }}:candidate-${{ github.sha }}" in workflow
+        assert workflow.count("uses: docker/build-push-action@") == 1
+
+    def test_gpu_release_tests_candidate_digest_before_promotion(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-gpu-release.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "workflow_dispatch:" in workflow
+        assert "runs-on: [self-hosted, gpu]" in workflow
+        assert '"${GITHUB_REF}" != "refs/heads/main"' in workflow
+        assert "candidate-${{ github.sha }}" in workflow
+        assert "docker buildx imagetools inspect" in workflow
+        assert 'CANDIDATE_IMAGE=${REGISTRY}/${IMAGE_NAME}@${DIGEST}' in workflow
+        assert "--gpus all" in workflow
         assert "--model-control-mode=explicit" in workflow
         assert "--load-model=*" in workflow
         assert "--cache-config=local,size=67108864" in workflow
@@ -684,16 +710,19 @@ class TestReleaseWorkflow:
         assert "tests/integration/test_text_classifier.py" in workflow
         assert "tests/integration/test_cache.py" in workflow
         assert "--triton-metrics-url http://localhost:8002" in workflow
-        assert "id: build" in workflow
-        assert "push: true" in workflow
-        assert "${{ env.IMAGE_NAME }}:candidate-${{ github.sha }}" in workflow
-        assert "@${{ steps.build.outputs.digest }}" in workflow
-        assert workflow.count("uses: docker/build-push-action@") == 1
         assert "docker buildx imagetools create" in workflow
         assert 'test "${PROMOTED_DIGEST}" = "${CANDIDATE_DIGEST}"' in workflow
         assert workflow.index("- name: Run release contract tests") < workflow.index(
             "- name: Promote tested digest to release tag"
         )
+
+        staging_path = os.path.join(
+            project_root, ".github", "workflows", "cd-staging.yml"
+        )
+        with open(staging_path) as workflow_file:
+            staging = workflow_file.read()
+        assert 'workflows: ["CI - GPU Release"]' in staging
+        assert 'workflows: ["CI - Build Candidate"]' not in staging
 
     def test_deploy_workflows_pin_the_resolved_digest(self, project_root):
         for filename in ("cd-staging.yml", "cd-production.yml"):
@@ -898,15 +927,22 @@ class TestImmutableModelRelease:
         assert workflow.count(prometheus_image) == 3
 
     def test_ci_smoke_tests_the_bundled_repository(self, project_root):
-        workflow_path = os.path.join(
+        build_workflow_path = os.path.join(
             project_root, ".github", "workflows", "ci-build-test.yml"
         )
-        with open(workflow_path) as workflow_file:
-            workflow = workflow_file.read()
-        start_step = workflow.split("- name: Start Triton server", 1)[1].split(
+        with open(build_workflow_path) as workflow_file:
+            build_workflow = workflow_file.read()
+        gpu_workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-gpu-release.yml"
+        )
+        with open(gpu_workflow_path) as workflow_file:
+            gpu_workflow = workflow_file.read()
+        start_step = gpu_workflow.split(
+            "- name: Start candidate Triton server", 1
+        )[1].split(
             "- name: Wait for server ready", 1
         )[0]
-        assert "VCS_REF=${{ github.sha }}" in workflow
+        assert "VCS_REF=${{ github.sha }}" in build_workflow
         assert "model_repository:/models" not in start_step
 
     def test_kustomize_uses_image_models_unless_pvc_is_opted_in(

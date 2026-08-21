@@ -1,0 +1,126 @@
+# =============================================================================
+# CI GPU Release — Candidate GPU Smoke Test + Release Tag Promotion
+# =============================================================================
+# Trigger: NVIDIA GPU self-hosted runner가 준비된 시점에 main에서 수동 실행
+# 안전선: candidate digest의 runtime contract를 통과하기 전에는 SHA release tag를 만들지 않음
+# =============================================================================
+
+name: CI - GPU Release
+
+on:
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: gpu-release
+  cancel-in-progress: false
+
+jobs:
+  test-and-promote:
+    name: GPU Smoke Test and Promote
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 60
+    steps:
+      - name: Checkout candidate revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify main revision
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "GPU release must be dispatched from the main branch" >&2
+            exit 1
+          fi
+          git fetch origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Install integration dependencies
+        run: python -m pip install -r requirements-integration.txt
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve candidate digest
+        run: |
+          DIGEST="$(docker buildx imagetools inspect "${CANDIDATE_TAG}" --format '{{.Manifest.Digest}}')"
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Could not resolve an immutable digest for ${CANDIDATE_TAG}" >&2
+            exit 1
+          fi
+          echo "CANDIDATE_DIGEST=${DIGEST}" >> "${GITHUB_ENV}"
+          echo "CANDIDATE_IMAGE=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "${GITHUB_ENV}"
+        env:
+          CANDIDATE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:candidate-${{ github.sha }}
+
+      - name: Start candidate Triton server
+        run: |
+          docker rm -f triton-test 2>/dev/null || true
+          docker run -d \
+            --name triton-test \
+            --gpus all \
+            -p 8000:8000 -p 8001:8001 -p 8002:8002 \
+            "${CANDIDATE_IMAGE}" \
+            --model-repository=/models \
+            --model-control-mode=explicit \
+            --load-model=* \
+            --strict-model-config=true \
+            --allow-metrics=true \
+            --allow-gpu-metrics=true \
+            --cache-config=local,size=67108864 \
+            --rate-limit=execution_count \
+            --log-verbose=0
+
+      - name: Wait for server ready
+        uses: ./.github/actions/triton-health-check
+        with:
+          url: http://localhost:8000
+          timeout: 120
+          container-name: triton-test
+
+      - name: Run release contract tests
+        run: |
+          pytest \
+            tests/smoke/ \
+            tests/integration/test_text_classifier.py \
+            tests/integration/test_cache.py \
+            --run-live \
+            --triton-url http://localhost:8000 \
+            --triton-metrics-url http://localhost:8002 \
+            -v
+
+      - name: Promote tested digest to release tag
+        run: |
+          docker buildx imagetools create \
+            --tag "${RELEASE_TAG}" \
+            "${CANDIDATE_IMAGE}"
+          PROMOTED_DIGEST="$(docker buildx imagetools inspect \
+            "${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
+          test "${PROMOTED_DIGEST}" = "${CANDIDATE_DIGEST}"
+        env:
+          RELEASE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Cleanup test container
+        if: always()
+        run: |
+          docker stop triton-test 2>/dev/null || true
+          docker rm triton-test 2>/dev/null || true

@@ -7,7 +7,7 @@
 | **Config** | `tests/config/` | config.pbtxt 유효성, manifest 정합성 | PR (CI) |
 | **Smoke** | `tests/smoke/` | 서버 기동 + 모델 로드 + metrics 노출 확인 | 배포 직후 |
 | **Integration** | `tests/integration/` | 파이프라인 E2E, 기능별 동작 검증 | Staging 배포 후 |
-| **Performance** | `tests/perf/` | throughput/latency 기준선 비교 | 주간/수동 |
+| **Performance** | `tests/perf/` | throughput/latency 기준선 비교 | GPU runner에서 수동 |
 
 ## 실행 방법
 
@@ -58,10 +58,11 @@ readiness, BYTES input, label/confidence output 계약을 실제 inference로 �
 실패시킵니다. LLM/vision처럼 manifest에서 기본 비활성인 선택 모델은 로드되지 않았을 때만
 skip하고, 일단 ready인 모델의 연결·설정·inference 오류는 배포 실패로 처리합니다.
 
-Main release CI도 candidate image를 production과 같은 `explicit + --load-model=*`, local cache,
-rate limiter 인자로 기동한 뒤 smoke, 필수 text classifier, cache miss/hit 계약을 모두 통과해야
-SHA release tag를 생성합니다. 따라서 staging 이전에도 image 안 모델과 production server
-인자의 결합 오류를 차단합니다.
+Main CI는 GitHub-hosted runner에서 candidate image까지만 build/push합니다. 별도의 수동
+`CI - GPU Release`가 candidate digest를 production과 같은 `explicit + --load-model=*`, local
+cache, rate limiter 인자로 기동한 뒤 smoke, 필수 text classifier, cache miss/hit 계약을 모두
+통과해야 SHA release tag를 생성합니다. GPU runner가 없으면 candidate 단계에서 멈추며,
+검증되지 않은 image가 staging으로 넘어가지 않습니다.
 
 성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,
 `tests/perf/profiles.json`의 input data·batch size·shape로 부하를 만든 다음
