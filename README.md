@@ -167,7 +167,8 @@ triton-infer-server-handbook/
 │       └── overlays/
 │           ├── dev/                     # 1 replica, 리소스 최소
 │           ├── staging/                 # 2 replicas, 중간 리소스
-│           ├── prod/                    # 3+ replicas, HPA, PDB
+│           ├── prod/                    # 내부 ClusterIP, 3+ replicas, HPA, PDB
+│           ├── prod-ingress/            # 외부 TLS/auth Ingress opt-in
 │           ├── multi-gpu/               # 단일 노드 다중 GPU
 │           └── multi-node/              # 멀티 노드 (HPA + PDB)
 │

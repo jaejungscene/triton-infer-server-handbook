@@ -425,15 +425,37 @@ class TestDeploymentRuntimeArgs:
 
         prod_dir = os.path.join(project_root, "deploy", "k8s", "overlays", "prod")
         prod = self._load_yaml(os.path.join(prod_dir, "kustomization.yaml"))
-        assert "../../ingress" in prod.get("resources", [])
+        assert "../../ingress" not in prod.get("resources", [])
+        assert not any(
+            "ingress" in patch.get("path", "")
+            for patch in prod.get("patches", [])
+        )
+
+        ingress_overlay_dir = os.path.join(
+            project_root, "deploy", "k8s", "overlays", "prod-ingress"
+        )
+        ingress_overlay = self._load_yaml(
+            os.path.join(ingress_overlay_dir, "kustomization.yaml")
+        )
+        assert {"../prod", "../../ingress"}.issubset(
+            set(ingress_overlay["resources"])
+        )
 
         for filename in ("ingress_http_patch.yaml", "ingress_grpc_patch.yaml"):
-            patch = self._load_yaml(os.path.join(prod_dir, filename))
+            patch = self._load_yaml(os.path.join(ingress_overlay_dir, filename))
             annotations = patch["metadata"]["annotations"]
             assert annotations["nginx.ingress.kubernetes.io/ssl-redirect"] == "true"
             assert annotations["nginx.ingress.kubernetes.io/auth-type"] == "basic"
             assert annotations["nginx.ingress.kubernetes.io/auth-secret"] == \
                 "triton-ingress-basic-auth"
+
+        production_workflow = os.path.join(
+            project_root, ".github", "workflows", "cd-production.yml"
+        )
+        with open(production_workflow) as workflow_file:
+            workflow = workflow_file.read()
+        assert "deploy/k8s/overlays/prod-ingress" not in workflow
+        assert "deploy/k8s/overlays/prod" in workflow
 
     def test_http_and_grpc_use_separate_ingresses(self, project_root):
         ingress_dir = os.path.join(project_root, "deploy", "k8s", "ingress")
