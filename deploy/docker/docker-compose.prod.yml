@@ -54,7 +54,7 @@ services:
   redis:
     # 이 profile은 Redis dependency만 시작합니다. Triton은 검증된 Redis cache
     # plugin을 release image에 포함하고 command를 바꾸기 전까지 local cache를 사용합니다.
-    image: redis:8.6.4-alpine
+    image: redis:8.6.4-alpine@sha256:2cc044fc5a07c9b701f8f1255a309ae9ad7856e694ac03513bf3648c01e40763
     profiles: ["redis-cache"]
     expose:
       - "6379"
@@ -71,7 +71,7 @@ services:
     logging: *default-logging
 
   prometheus:
-    image: prom/prometheus:v3.13.0
+    image: prom/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
     ports:
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
@@ -87,7 +87,7 @@ services:
     logging: *default-logging
 
   grafana:
-    image: grafana/grafana:13.0.3
+    image: grafana/grafana:13.0.3@sha256:1a345428a36270f5fb9add69fea71450a5843c15266c99359d6d380470ab19c9
     ports:
       - "${HOST_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     volumes:

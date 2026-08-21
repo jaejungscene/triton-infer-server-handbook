@@ -866,6 +866,37 @@ class TestImmutableModelRelease:
             assert "ARG TRITON_IMAGE=" in source
             assert "FROM ${TRITON_IMAGE}" in source
 
+    def test_production_support_images_are_digest_pinned(self, project_root):
+        compose_path = os.path.join(
+            project_root, "deploy", "docker", "docker-compose.prod.yml"
+        )
+        with open(compose_path) as compose_file:
+            compose = compose_file.read()
+
+        image_pattern = re.compile(
+            r"^\s+image: "
+            r"((?:redis|prom/prometheus|grafana/grafana):[^@\s]+"
+            r"@sha256:[0-9a-f]{64})$",
+            re.MULTILINE,
+        )
+        support_images = image_pattern.findall(compose)
+        assert len(support_images) == 3
+        assert {image.split(":", 1)[0] for image in support_images} == {
+            "redis",
+            "prom/prometheus",
+            "grafana/grafana",
+        }
+
+        prometheus_image = next(
+            image for image in support_images if image.startswith("prom/prometheus:")
+        )
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-validate.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+        assert workflow.count(prometheus_image) == 3
+
     def test_ci_smoke_tests_the_bundled_repository(self, project_root):
         workflow_path = os.path.join(
             project_root, ".github", "workflows", "ci-build-test.yml"

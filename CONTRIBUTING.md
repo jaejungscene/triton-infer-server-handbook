@@ -58,6 +58,10 @@ Triton container는 사람이 읽는 release tag와 immutable digest를 함께 �
 올릴 때 Dockerfile 두 개, dev Compose, perf SDK, `tests/perf/baseline.json`의 tag/digest를 같은
 PR에서 갱신하고 새 digest의 출처와 smoke/perf 결과를 남깁니다.
 
+production Compose의 Redis, Prometheus, Grafana와 CI의 Prometheus 도구 image도
+`tag@sha256:<manifest-list-digest>`로 고정합니다. 버전을 올릴 때 `docker buildx imagetools inspect`
+로 multi-architecture index digest를 확인하고 Compose와 CI의 Prometheus 참조를 함께 갱신합니다.
+
 ## 커밋 메시지
 
 ```

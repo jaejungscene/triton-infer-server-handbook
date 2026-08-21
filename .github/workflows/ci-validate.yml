@@ -147,16 +147,16 @@ jobs:
         run: |
           docker run --rm --entrypoint /bin/promtool \
             -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v3.13.0 \
+            prom/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7 \
             check config /etc/prometheus/scrape_config.yml
           docker run --rm --entrypoint /bin/promtool \
             -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v3.13.0 \
+            prom/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7 \
             check rules /etc/prometheus/triton_rules.yml
           docker run --rm --entrypoint /bin/promtool \
             -v "${PWD}/monitoring/prometheus:/etc/prometheus:ro" \
             -w /etc/prometheus \
-            prom/prometheus:v3.13.0 \
+            prom/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7 \
             test rules triton_rules_test.yml
 
       - name: Validate shell syntax
