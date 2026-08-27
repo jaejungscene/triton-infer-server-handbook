@@ -62,6 +62,11 @@ production Compose의 Redis, Prometheus, Grafana와 CI의 Prometheus 도구 imag
 `tag@sha256:<manifest-list-digest>`로 고정합니다. 버전을 올릴 때 `docker buildx imagetools inspect`
 로 multi-architecture index digest를 확인하고 Compose와 CI의 Prometheus 참조를 함께 갱신합니다.
 
+main CI는 `candidate-<commit SHA>` image만 게시합니다. candidate는 GPU 검증 전 artifact이므로
+staging이나 production에 사용하지 않습니다. NVIDIA GPU runner가 준비된 시점에 main에서
+`CI - GPU Release`를 수동 실행하고, runtime contract를 통과해 `<commit SHA>` release tag가
+생성된 뒤에만 staging과 production 절차를 진행합니다.
+
 ## 커밋 메시지
 
 ```

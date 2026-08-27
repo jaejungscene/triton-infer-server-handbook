@@ -10,6 +10,8 @@
 
 # NVIDIA release tag와 registry digest는 검증 PR에서 함께 갱신합니다.
 ARG TRITON_IMAGE=nvcr.io/nvidia/tritonserver:24.08-py3@sha256:0b6a7449ea6a46fd167376d40418b169ed82cd36addc6f6c56fe2cbda4294e13
+# hadolint cannot resolve the digest-pinned ARG default; config tests enforce it.
+# hadolint ignore=DL3006
 FROM ${TRITON_IMAGE}
 
 ARG VCS_REF=unknown

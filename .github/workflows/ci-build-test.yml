@@ -1,11 +1,12 @@
 # =============================================================================
-# CI Build & Test — 모델 빌드 + Smoke Test + Image Push
+# CI Build Candidate — 모델 빌드 + Candidate Image Push
 # =============================================================================
 # Trigger: main branch에 merge 시
-# Runner: self-hosted GPU runner (GPU 필요)
+# Runner: GitHub-hosted runner (GPU 불필요)
+# 주의: 이 workflow는 release SHA tag를 만들지 않습니다.
 # =============================================================================
 
-name: CI - Build & Test
+name: CI - Build Candidate
 
 on:
   push:
@@ -25,9 +26,9 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build-and-test:
-    name: Build & Smoke Test
-    runs-on: [self-hosted, gpu]  # GPU self-hosted runner
+  build-candidate:
+    name: Build Candidate Image
+    runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
       group: ci-build-test-${{ github.ref }}
@@ -54,6 +55,12 @@ jobs:
           echo "Model repository contents:"
           ls -la model_repository/
 
+      - name: Reclaim disk for Triton image build
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          docker system prune --all --force
+          df -h /
+
       # ── Step 2: Docker image build ──
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -76,62 +83,19 @@ jobs:
           build-args: |
             VCS_REF=${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
 
-      # ── Step 3: Start Triton + Smoke Test ──
-      - name: Start Triton server
+      - name: Record candidate identity
         run: |
-          docker run -d \
-            --name triton-test \
-            --gpus all \
-            -p 8000:8000 -p 8001:8001 -p 8002:8002 \
-            "${RELEASE_IMAGE}" \
-            --model-repository=/models \
-            --model-control-mode=explicit \
-            --load-model=* \
-            --strict-model-config=true \
-            --allow-metrics=true \
-            --allow-gpu-metrics=true \
-            --cache-config=local,size=67108864 \
-            --rate-limit=execution_count \
-            --log-verbose=0
+          if [[ ! "${CANDIDATE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Candidate build did not return an immutable digest" >&2
+            exit 1
+          fi
+          {
+            echo "### Candidate image"
+            echo "- Source: \`${GITHUB_SHA}\`"
+            echo "- Image: \`${REGISTRY}/${IMAGE_NAME}@${CANDIDATE_DIGEST}\`"
+            echo "- Status: GPU 검증 전 candidate이며 release 또는 배포에 사용할 수 없음"
+          } >> "${GITHUB_STEP_SUMMARY}"
         env:
-          RELEASE_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
-
-      - name: Wait for server ready
-        uses: ./.github/actions/triton-health-check
-        with:
-          url: http://localhost:8000
-          timeout: 120
-          container-name: triton-test
-
-      - name: Run release contract tests
-        run: |
-          python -m pip install -r requirements-integration.txt
-          pytest \
-            tests/smoke/ \
-            tests/integration/test_text_classifier.py \
-            tests/integration/test_cache.py \
-            --run-live \
-            --triton-url http://localhost:8000 \
-            --triton-metrics-url http://localhost:8002 \
-            -v
-
-      - name: Promote tested digest to release tag
-        run: |
-          docker buildx imagetools create \
-            --tag "${RELEASE_TAG}" \
-            "${CANDIDATE_IMAGE}"
-          PROMOTED_DIGEST="$(docker buildx imagetools inspect \
-            "${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
-          test "${PROMOTED_DIGEST}" = "${CANDIDATE_DIGEST}"
-        env:
-          CANDIDATE_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           CANDIDATE_DIGEST: ${{ steps.build.outputs.digest }}
-          RELEASE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-      - name: Cleanup test container
-        if: always()
-        run: |
-          docker stop triton-test 2>/dev/null || true
-          docker rm triton-test 2>/dev/null || true

@@ -1,7 +1,7 @@
 # =============================================================================
 # Performance Benchmark — 성능 기준선 비교
 # =============================================================================
-# Trigger: 주간 스케줄 + 수동
+# Trigger: GPU runner가 준비된 시점에 수동
 # Runner: self-hosted GPU runner
 # =============================================================================
 
@@ -15,8 +15,6 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  schedule:
-    - cron: '0 3 * * 1'  # 매주 월요일 03:00 UTC
   workflow_dispatch:
     inputs:
       model:

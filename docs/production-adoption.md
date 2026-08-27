@@ -61,15 +61,18 @@ namespace 배포에 필요한 최소 RBAC만 부여합니다.
 sequenceDiagram
     participant Dev as Developer
     participant CI as CI
+    participant GPU as GPU Release Runner
     participant Stg as Staging Triton
     participant Perf as GPU Perf Workflow
     participant Prod as Production Triton
     Dev->>CI: PR with config/model changes
     CI->>CI: validate.sh, pytest config, lint
-    CI->>CI: build model_repository + serving image
-    CI->>Stg: resolve SHA tag and deploy immutable digest
+    CI->>CI: build model_repository + candidate image
+    Dev->>GPU: manually dispatch main revision
+    GPU->>GPU: smoke test candidate digest + promote SHA tag
+    GPU->>Stg: trigger verified immutable release
     Stg->>Stg: integration contract test
-    CI->>Perf: weekly or manual benchmark
+    CI->>Perf: manually benchmark verified revision
     Dev->>Prod: approve release
     Prod->>Prod: rolling deploy / explicit load
     Prod->>Prod: monitor alerts and stats
@@ -86,10 +89,12 @@ runtime `imageID`가 이 digest와 같은지 확인합니다. 이 검증이 실�
 `text_classifier`의 실제 output과 response-cache miss/hit counter 증가를 확인합니다. cluster의
 model load, metrics, cache 설정 중 하나라도 release 후보와 다르면 배포를 성공으로 선언하지
 않습니다.
-image build 단계는 먼저 `candidate-<40자리 commit SHA>` tag를 push하고 그 digest를 직접
-smoke test합니다. 성공한 뒤에만 동일 digest에 `<40자리 commit SHA>` release tag를 붙이며
-`main`이나 `latest` tag는 만들지 않습니다. 따라서 실패한 CI의 candidate는 production
-workflow가 찾는 release tag로 승격되지 않습니다.
+main image build 단계는 GitHub-hosted runner에서 `candidate-<40자리 commit SHA>` tag까지만
+push합니다. 이 성공은 build artifact가 있다는 뜻이지 runtime 검증이나 배포 승인이 아닙니다.
+NVIDIA GPU runner가 준비된 시점에 `CI - GPU Release`를 main에서 수동 실행하면 candidate
+registry digest를 직접 smoke test하고, 성공한 동일 digest에만 `<40자리 commit SHA>` release
+tag를 붙입니다. `main`이나 `latest` tag는 만들지 않습니다. GPU runner가 없거나 검증이
+실패하면 production workflow가 찾는 SHA release tag가 생성되지 않습니다.
 
 Staging workflow는 배포 직전 현재 Deployment의 immutable image reference를 기록합니다.
 새 image의 rollout, readiness 또는 integration test가 실패하면 `kubectl rollout undo`의
@@ -100,7 +105,7 @@ image만 되돌리므로 ConfigMap, Secret, API contract를 함께 바꾸는 rel
 별도 GitOps revision으로 복원하는 절차가 필요합니다.
 
 성능 비교는 production deploy job 안에서 실행되지 않습니다. self-hosted GPU runner의
-`perf-benchmark.yml`을 주간 또는 수동으로 실행하고, 승인자는 배포할 image SHA와 같은 revision의
+`perf-benchmark.yml`을 수동으로 실행하고, 승인자는 배포할 image SHA와 같은 revision의
 결과 artifact를 확인합니다. 성능 회귀를 강제 gate로 쓸 조직은 이 결과를 production
 Environment 승인 조건에 연결합니다.
 

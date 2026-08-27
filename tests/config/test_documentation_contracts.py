@@ -36,6 +36,7 @@ def test_release_docs_distinguish_sha_selector_from_image_digest(project_root):
     scenarios = _read(project_root, "docs/scenarios.md")
 
     assert "이 SHA는\nrelease 선택자" in adoption
-    assert "registry digest로 smoke test" in architecture
+    assert "candidate registry digest를 smoke test" in architecture
+    assert "candidate tag는 build 결과를 보존할\n뿐 release identity가 아니며" in architecture
     assert "container image digest를 고정" in scenarios
     assert "- `/v2/models`" not in scenarios
