@@ -53,12 +53,21 @@ class _Request:
         return None
 
 
+class _Logger:
+    messages = []
+
+    @classmethod
+    def log_error(cls, message):
+        cls.messages.append(message)
+
+
 def _load_template(project_root, monkeypatch):
     pb_utils = types.ModuleType("triton_python_backend_utils")
     pb_utils.Tensor = _Tensor
     pb_utils.TritonError = _TritonError
     pb_utils.InferenceResponse = _InferenceResponse
     pb_utils.InferenceRequest = _InferenceRequest
+    pb_utils.Logger = _Logger
     pb_utils.get_input_tensor_by_name = lambda request, name: request.input_tensor
     pb_utils.get_output_tensor_by_name = lambda response, name: next(
         (tensor for tensor in response.output_tensors if tensor.name == name), None
@@ -107,3 +116,46 @@ def test_bls_returns_request_error_when_input_is_missing(project_root, monkeypat
 
     assert response.has_error()
     assert response.error().message() == "Missing required input: INPUT"
+
+
+def test_bls_isolates_unexpected_failure_to_one_request(project_root, monkeypatch):
+    model = _load_template(project_root, monkeypatch)
+    _Logger.messages = []
+    _InferenceRequest.queued_responses = [
+        _InferenceResponse(output_tensors=[_Tensor("PREPROCESSED", np.ones((1, 3)))]),
+        _InferenceResponse(
+            output_tensors=[_Tensor("RAW_OUTPUT", np.ones((1, 2), dtype=np.float32))]
+        ),
+    ]
+
+    class BrokenTensor:
+        def as_numpy(self):
+            raise RuntimeError("private artifact path")
+
+    responses = model.execute(
+        [
+            _Request(BrokenTensor()),
+            _Request(_Tensor("INPUT", np.ones((1, 8, 8, 3), dtype=np.uint8))),
+        ]
+    )
+
+    assert responses[0].has_error()
+    assert responses[0].error().message() == "BLS request failed; see server logs"
+    assert not responses[1].has_error()
+    assert "private artifact path" not in responses[0].error().message()
+    assert "private artifact path" in _Logger.messages[0]
+
+
+def test_bls_does_not_expose_downstream_error_details(project_root, monkeypatch):
+    model = _load_template(project_root, monkeypatch)
+    _Logger.messages = []
+    _InferenceRequest.queued_responses = [
+        _InferenceResponse(error=_TritonError("/models/private/model.py failed"))
+    ]
+
+    response = model.execute(
+        [_Request(_Tensor("INPUT", np.ones((1, 8, 8, 3), dtype=np.uint8)))]
+    )[0]
+
+    assert response.error().message() == "Preprocess model failed; see server logs"
+    assert "/models/private/model.py" in _Logger.messages[0]

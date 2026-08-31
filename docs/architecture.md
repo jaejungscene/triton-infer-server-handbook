@@ -111,7 +111,10 @@ BLS template은 함께 제공되는 ensemble preprocessor와 inferencer를 호�
 출발점이므로 입력을 UINT8 HWC로 선언합니다. 다른 하위 모델을 호출하도록 바꾸면 BLS config의
 dtype/shape, 내부 `pb_utils.Tensor` 이름, requested output 이름, warmup 입력을 한 계약으로
 같이 변경해야 합니다. 하위 응답에서 tensor가 누락된 경우에는 요청별 오류로 처리해야 batch의
-다른 요청까지 잃지 않습니다.
+다른 요청까지 잃지 않습니다. template은 각 요청의 tensor 변환과 내부 호출을 별도로 격리하므로
+예상하지 못한 Python 예외도 같은 batch의 정상 요청을 중단하지 않습니다. 내부 모델의 상세
+오류는 server log에 남기고 client에는 실패 stage만 반환합니다. 운영에서는 이 log를 request
+ID·trace ID와 연결하되 입력 원문이나 인증 정보는 기록하지 않습니다.
 
 ## 관측성
 

@@ -23,88 +23,84 @@ class TritonPythonModel:
     def execute(self, requests):
         responses = []
         for request in requests:
-            input_tensor = pb_utils.get_input_tensor_by_name(request, "INPUT")
-            if input_tensor is None:
-                responses.append(self._error("Missing required input: INPUT"))
-                continue
-            input_data = input_tensor.as_numpy()
-
-            # -----------------------------------------------------------------
-            # Step 1: 첫 번째 모델 호출 (예: preprocessor)
-            # -----------------------------------------------------------------
-            preprocess_input = pb_utils.Tensor("RAW_INPUT", input_data)
-            preprocess_request = pb_utils.InferenceRequest(
-                model_name="preprocessor",
-                requested_output_names=["PREPROCESSED"],
-                inputs=[preprocess_input],
-                trace=request.trace(),  # ★ trace 전파 (BLS tracing)
-            )
-            preprocess_response = preprocess_request.exec()
-
-            if preprocess_response.has_error():
-                responses.append(
-                    pb_utils.InferenceResponse(
-                        error=pb_utils.TritonError(
-                            f"Preprocess failed: {preprocess_response.error().message()}"
-                        )
-                    )
+            try:
+                responses.append(self._execute_request(request))
+            except Exception as error:
+                self._log_error(
+                    f"BLS request failed: {type(error).__name__}: {error}"
                 )
-                continue
-
-            preprocessed = pb_utils.get_output_tensor_by_name(
-                preprocess_response, "PREPROCESSED"
-            )
-            if preprocessed is None:
-                responses.append(
-                    self._error("Preprocessor response is missing PREPROCESSED")
-                )
-                continue
-
-            # -----------------------------------------------------------------
-            # Step 2: 조건 분기 (BLS의 핵심 장점)
-            # -----------------------------------------------------------------
-            # 예: 입력 크기에 따라 다른 모델 호출
-            # if input_data.shape[-1] > threshold:
-            #     model_to_call = "large_model"
-            # else:
-            #     model_to_call = "small_model"
-
-            # -----------------------------------------------------------------
-            # Step 3: 두 번째 모델 호출 (예: inferencer)
-            # -----------------------------------------------------------------
-            infer_request = pb_utils.InferenceRequest(
-                model_name="inferencer",
-                requested_output_names=["RAW_OUTPUT"],
-                inputs=[preprocessed],
-                trace=request.trace(),
-            )
-            infer_response = infer_request.exec()
-
-            if infer_response.has_error():
-                responses.append(
-                    pb_utils.InferenceResponse(
-                        error=pb_utils.TritonError(
-                            f"Inference failed: {infer_response.error().message()}"
-                        )
-                    )
-                )
-                continue
-
-            output = pb_utils.get_output_tensor_by_name(infer_response, "RAW_OUTPUT")
-            if output is None:
-                responses.append(
-                    self._error("Inferencer response is missing RAW_OUTPUT")
-                )
-                continue
-            result = output.as_numpy()
-
-            # -----------------------------------------------------------------
-            # 최종 응답 구성
-            # -----------------------------------------------------------------
-            output_tensor = pb_utils.Tensor("OUTPUT", result.astype(np.float32))
-            responses.append(pb_utils.InferenceResponse(output_tensors=[output_tensor]))
-
+                responses.append(self._error("BLS request failed; see server logs"))
         return responses
+
+    def _execute_request(self, request):
+        input_tensor = pb_utils.get_input_tensor_by_name(request, "INPUT")
+        if input_tensor is None:
+            return self._error("Missing required input: INPUT")
+        input_data = input_tensor.as_numpy()
+
+        # -----------------------------------------------------------------
+        # Step 1: 첫 번째 모델 호출 (예: preprocessor)
+        # -----------------------------------------------------------------
+        preprocess_input = pb_utils.Tensor("RAW_INPUT", input_data)
+        preprocess_request = pb_utils.InferenceRequest(
+            model_name="preprocessor",
+            requested_output_names=["PREPROCESSED"],
+            inputs=[preprocess_input],
+            trace=request.trace(),
+        )
+        preprocess_response = preprocess_request.exec()
+
+        if preprocess_response.has_error():
+            return self._downstream_error("Preprocess", preprocess_response)
+
+        preprocessed = pb_utils.get_output_tensor_by_name(
+            preprocess_response, "PREPROCESSED"
+        )
+        if preprocessed is None:
+            return self._error("Preprocessor response is missing PREPROCESSED")
+
+        # -----------------------------------------------------------------
+        # Step 2: 조건 분기 (BLS의 핵심 장점)
+        # -----------------------------------------------------------------
+        # 예: 입력 크기에 따라 다른 모델 호출
+        # if input_data.shape[-1] > threshold:
+        #     model_to_call = "large_model"
+        # else:
+        #     model_to_call = "small_model"
+
+        # -----------------------------------------------------------------
+        # Step 3: 두 번째 모델 호출 (예: inferencer)
+        # -----------------------------------------------------------------
+        infer_request = pb_utils.InferenceRequest(
+            model_name="inferencer",
+            requested_output_names=["RAW_OUTPUT"],
+            inputs=[preprocessed],
+            trace=request.trace(),
+        )
+        infer_response = infer_request.exec()
+
+        if infer_response.has_error():
+            return self._downstream_error("Inference", infer_response)
+
+        output = pb_utils.get_output_tensor_by_name(infer_response, "RAW_OUTPUT")
+        if output is None:
+            return self._error("Inferencer response is missing RAW_OUTPUT")
+        result = output.as_numpy()
+
+        output_tensor = pb_utils.Tensor("OUTPUT", result.astype(np.float32))
+        return pb_utils.InferenceResponse(output_tensors=[output_tensor])
+
+    @classmethod
+    def _downstream_error(cls, stage, response):
+        detail = response.error().message()
+        cls._log_error(f"{stage} model failed: {detail}")
+        return cls._error(f"{stage} model failed; see server logs")
+
+    @staticmethod
+    def _log_error(message):
+        logger = getattr(pb_utils, "Logger", None)
+        if logger is not None and hasattr(logger, "log_error"):
+            logger.log_error(message)
 
     @staticmethod
     def _error(message):
