@@ -49,4 +49,7 @@ TRITON_AUTH_TOKEN="$(secret-tool lookup service triton)" \
 없거나 `target`과 `config.pbtxt`의 `name`이 다르거나 선택 결과가 0개면 기존 repository를
 수정하지 않고 실패합니다. `--env`는 각 manifest 항목의 선택적 `environments` 허용 목록을
 적용하며, 이 필드를 생략한 모델은 세 환경 모두에 배치할 수 있습니다. `.env.*`는 Compose
-설정이며 build 과정에서 shell script로 실행하지 않습니다.
+설정이며 build 과정에서 shell script로 실행하지 않습니다. 선택한 모델 source에는 symlink를
+허용하지 않습니다. 모델 밖 artifact가 link를 통해 release image에 섞이거나 link 대상 변경으로
+같은 commit의 빌드 결과가 달라지는 일을 막기 위한 경계이므로, 공통 파일도 각 모델 source에
+명시적으로 복사하고 checksum을 manifest 승격 기록에 남깁니다.

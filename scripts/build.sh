@@ -103,6 +103,26 @@ def contained_path(base: Path, relative: str, field: str) -> Path:
     return candidate
 
 
+def reject_symlinks(base: Path, relative: str, source_path: Path, target: str) -> None:
+    current = base
+    for part in Path(relative).parts:
+        current /= part
+        if current.is_symlink():
+            raise SystemExit(
+                f"[build] enabled model {target} uses a symlink in source path: {relative}"
+            )
+
+    for root, directories, files in os.walk(source_path, followlinks=False):
+        for name in [*directories, *files]:
+            candidate = Path(root, name)
+            if candidate.is_symlink():
+                relative_candidate = candidate.relative_to(source_path)
+                raise SystemExit(
+                    f"[build] enabled model {target} contains a symlink: "
+                    f"{relative_candidate}"
+                )
+
+
 with manifest_path.open(encoding="utf-8") as manifest_file:
     manifest = yaml.safe_load(manifest_file)
 
@@ -157,6 +177,7 @@ for index, model in enumerate(manifest["models"]):
         continue
     if not source_path.is_dir():
         raise SystemExit(f"[build] enabled model source not found: {source_path}")
+    reject_symlinks(models_src, source, source_path, target)
 
     config_path = source_path / "config.pbtxt"
     if not config_path.is_file():
