@@ -81,6 +81,15 @@ CSV 값은 microsecond이므로 비교기가 millisecond로 변환합니다. 기
 | `TRITON_GRPC_URL` | `localhost:8001` | Triton gRPC endpoint |
 | `TRITON_METRICS_URL` | HTTP URL에서 8002로 추론 | Triton Prometheus metrics endpoint |
 | `TRITON_AUTH_TOKEN` | 없음 | HTTP/gRPC health·metadata·inference Bearer token |
+| `TRITON_CA_CERT` | 시스템 CA | HTTPS perf endpoint의 사설 CA bundle |
+
+`run_perf_analyzer.sh`는 credential·path가 없는 HTTP(S) origin과 안전한 model 이름만 허용하고,
+Repository Index가 반환한 이름도 다시 검증합니다. 인증 endpoint는 `TRITON_AUTH_TOKEN`을
+Repository Index와 Perf Analyzer HTTP 요청에 함께 적용합니다. Perf Analyzer의 header API는
+token을 process argument로 전달하므로 공유 shell host가 아니라 접근이 제한된 전용 runner에서
+실행하고, 가능하면 `kubectl port-forward`로 만든 loopback endpoint를 사용해 token 전달 자체를
+피합니다. HTTPS는 peer/hostname 검증을 끄지 않으며 사설 CA는 `--ca-cert` 또는
+`TRITON_CA_CERT`로 지정합니다.
 | `TRITON_METRICS_AUTH_TOKEN` | inference token 사용 | metrics endpoint 전용 Bearer token |
 
 인증 token은 pytest 인수로 넘기지 않고 환경변수로 주입합니다. metrics gateway가 inference와
