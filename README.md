@@ -174,7 +174,8 @@ triton-infer-server-handbook/
 │
 ├── monitoring/                          # 메트릭·트레이싱·알림
 │   ├── prometheus/
-│   │   ├── scrape_config.yml            # Compose 서비스 triton:8002/metrics 스크랩 설정
+│   │   ├── scrape_config.yml            # Compose 서비스 triton:8002/metrics 설정
+│   │   ├── kubernetes_scrape_config.yml # Kubernetes Pod discovery·relabel 설정
 │   │   ├── triton_rules.yml             # 알림 규칙 (latency, error rate, GPU 사용률 등)
 │   │   └── triton_rules_test.yml        # promtool alert evaluation 테스트
 │   ├── grafana/
@@ -280,7 +281,7 @@ triton-infer-server-handbook/
 
 | 기능 | 설정 위치 | 설명 |
 |------|-----------|------|
-| **Prometheus Metrics** | `monitoring/prometheus/scrape_config.yml` | throughput, latency, 큐 대기, GPU 사용률 수집 |
+| **Prometheus Metrics** | `monitoring/prometheus/*scrape_config.yml` | Compose/Kubernetes별 target discovery, throughput, latency, 큐 대기, GPU 사용률 수집 |
 | **Alert Rules** | `monitoring/prometheus/triton_rules.yml` | 평균 latency > 200ms, error rate > 5%, GPU > 90% 등 알림 |
 | **Grafana Dashboard** | `monitoring/grafana/triton_dashboard.json` | 사전 구성된 시각화 대시보드 |
 | **OpenTelemetry Tracing** | `monitoring/otel/otel-collector-config.yaml` + `configs/tracing/otel.txt` | 별도 배포한 collector/backend에 요청 trace 전달 |

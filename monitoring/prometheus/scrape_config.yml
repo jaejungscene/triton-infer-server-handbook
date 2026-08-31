@@ -1,4 +1,5 @@
-# Prometheus scrape configuration for Triton Inference Server
+# Prometheus scrape configuration for the single-host Compose topology.
+# Kubernetes uses kubernetes_scrape_config.yml instead.
 
 global:
   scrape_interval: 15s
@@ -15,20 +16,3 @@ scrape_configs:
         labels:
           service: triton
           environment: production
-
-    # Kubernetes 환경에서는 아래 설정 사용
-    # kubernetes_sd_configs:
-    #   - role: pod
-    # relabel_configs:
-    #   - source_labels: [__meta_kubernetes_pod_label_app]
-    #     regex: triton-server
-    #     action: keep
-    #   - target_label: service
-    #     replacement: triton
-    #   - target_label: environment
-    #     replacement: production
-    #   - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
-    #     action: replace
-    #     target_label: __address__
-    #     regex: (.+)
-    #     replacement: $1:8002

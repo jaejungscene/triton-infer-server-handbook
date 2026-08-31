@@ -118,6 +118,21 @@ GPU 사용률이나 Triton queue time으로 확장하려면 Prometheus Adapter/K
 이름과 단위를 staging에서 검증한 뒤 HPA `metrics`를 교체합니다. DCGM exporter metric 이름을
 adapter 설정 없이 HPA에 직접 적는 것만으로는 autoscaling이 동작하지 않습니다.
 
+## Prometheus Pod discovery
+
+Compose의 `monitoring/prometheus/scrape_config.yml`은 Docker DNS의 `triton:8002`를 대상으로
+하므로 Kubernetes에 그대로 적용하지 않습니다. 클러스터에서는
+`monitoring/prometheus/kubernetes_scrape_config.yml`을 사용합니다. 이 설정은 scrape annotation을
+가진 Triton Pod만 남기고, Kubernetes가 발견한 Pod 주소의 host와 `prometheus.io/port`를 합쳐
+실제 `PodIP:8002` target을 만듭니다. namespace는 alert/dashboard의 `environment`, Pod 이름은
+`pod`, 고정값 `triton`은 `service` label로 보존됩니다.
+
+Prometheus ServiceAccount에는 대상 namespace의 `pods`, `endpoints`, `services`를 list/watch할
+최소 RBAC가 필요합니다. `/targets`에서 `staging`·`production` target과 최종 label을 먼저
+확인하고, Prometheus Pod의 실제 label이 prod NetworkPolicy의 monitoring selector와 일치하는지도
+검증합니다. Helm `nameOverride`로 `app.kubernetes.io/name`을 `triton`이 아닌 값으로 바꾸면
+scrape config의 workload keep regex도 같은 release에서 함께 변경해야 합니다.
+
 staging은 hostname 기준 `ScheduleAnyway` 분산과 `minAvailable: 1` PDB를 적용합니다. 가능한
 GPU 노드에는 Pod를 나누고 drain 중 최소 1개를 유지하지만, 노드가 하나뿐이어도 검증 배포를
 막지는 않습니다. prod는 같은 기준을 `DoNotSchedule`로 강제하므로 GPU 노드가 부족하면 일부

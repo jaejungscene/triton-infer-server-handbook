@@ -614,6 +614,54 @@ class TestReleaseWorkflow:
         assert "- 'monitoring/**'" in workflow
         assert "- '**/*.md'" in workflow
 
+    def test_kubernetes_prometheus_discovery_preserves_pod_address(
+        self, project_root
+    ):
+        config_path = os.path.join(
+            project_root,
+            "monitoring",
+            "prometheus",
+            "kubernetes_scrape_config.yml",
+        )
+        with open(config_path) as config_file:
+            config = yaml.safe_load(config_file)
+        relabel_configs = config["scrape_configs"][0]["relabel_configs"]
+
+        address_rules = [
+            rule
+            for rule in relabel_configs
+            if rule.get("target_label") == "__address__"
+        ]
+        assert len(address_rules) == 2
+        assert all(
+            rule["source_labels"]
+            == [
+                "__meta_kubernetes_pod_ip",
+                "__meta_kubernetes_pod_annotation_prometheus_io_port",
+            ]
+            for rule in address_rules
+        )
+        assert {rule["replacement"] for rule in address_rules} == {
+            "$1:$2",
+            "[$1]:$2",
+        }
+
+        environment_rule = next(
+            rule
+            for rule in relabel_configs
+            if rule.get("target_label") == "environment"
+        )
+        assert environment_rule["source_labels"] == [
+            "__meta_kubernetes_namespace"
+        ]
+
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-validate.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+        assert "check config /etc/prometheus/kubernetes_scrape_config.yml" in workflow
+
     def test_pr_ci_runs_offline_unit_suites(self, project_root):
         workflow_path = os.path.join(
             project_root, ".github", "workflows", "ci-validate.yml"
@@ -925,7 +973,11 @@ class TestImmutableModelRelease:
         )
         with open(workflow_path) as workflow_file:
             workflow = workflow_file.read()
-        assert workflow.count(prometheus_image) == 3
+        promtool_invocations = workflow.count(
+            "docker run --rm --entrypoint /bin/promtool"
+        )
+        assert promtool_invocations >= 4
+        assert workflow.count(prometheus_image) == promtool_invocations
 
     def test_ci_smoke_tests_the_bundled_repository(self, project_root):
         build_workflow_path = os.path.join(
