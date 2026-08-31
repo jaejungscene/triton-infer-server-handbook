@@ -181,7 +181,9 @@ triton-infer-server-handbook/
 │   ├── grafana/
 │   │   └── triton_dashboard.json        # 사전 구성된 Grafana 대시보드
 │   └── otel/
-│       └── otel-collector-config.yaml   # 별도 배포용 OTel Collector 설정 예시
+│       ├── README.md                    # Collector 운영·보안·검증 가이드
+│       ├── otel-collector-config.yaml   # TLS backend를 요구하는 운영 설정
+│       └── otel-collector-config.dev.yaml # 로컬 Jaeger/debug 전용 설정
 │
 ├── tests/                               # 테스트 피라미드
 │   ├── config/                          # config.pbtxt 검증 (PR마다 실행)
@@ -284,7 +286,7 @@ triton-infer-server-handbook/
 | **Prometheus Metrics** | `monitoring/prometheus/*scrape_config.yml` | Compose/Kubernetes별 target discovery, throughput, latency, 큐 대기, GPU 사용률 수집 |
 | **Alert Rules** | `monitoring/prometheus/triton_rules.yml` | 평균 latency > 200ms, error rate > 5%, GPU > 90% 등 알림 |
 | **Grafana Dashboard** | `monitoring/grafana/triton_dashboard.json` | 사전 구성된 시각화 대시보드 |
-| **OpenTelemetry Tracing** | `monitoring/otel/otel-collector-config.yaml` + `configs/tracing/otel.txt` | 별도 배포한 collector/backend에 요청 trace 전달 |
+| **OpenTelemetry Tracing** | `monitoring/otel/README.md` + `configs/tracing/otel.txt` | 운영 TLS export와 로컬 debug 설정을 분리해 요청 trace 전달 |
 | **Health Check** | `scripts/health_check.sh` / `/v2/health/live`, `/v2/health/ready` | 서버·모델 상태 확인 |
 | **Statistics API** | `client/stats_client.py` / `GET /v2/models/{name}/stats` | 모델별 추론 횟수·큐 대기·연산 시간 상세 조회 |
 
@@ -498,12 +500,13 @@ StatusCode.UNAVAILABLE: failed to connect to all addresses
 
 **체크리스트**:
 1. `configs/tracing/otel.txt`의 인수를 실제 Triton Deployment/Compose에 추가했는지 확인
-2. `monitoring/otel/otel-collector-config.yaml`을 별도 collector 배포에 적용했는지 확인
+2. `monitoring/otel/README.md`의 운영 환경 변수와 Collector 설정을 별도 배포에 적용했는지 확인
 3. Triton Pod에서 collector `:4318` endpoint로 연결되는지 확인
-4. collector의 `debug` exporter 로그와 trace backend 수신 상태 확인
+4. Collector exporter 오류와 trace backend 수신 상태 확인
 
 기본 Docker Compose와 Kubernetes overlay는 OTel Collector나 Jaeger를 자동 배포하지 않습니다.
-조직의 collector/backend가 준비된 환경에서 opt-in으로 연결합니다.
+조직의 collector/backend가 준비된 환경에서 opt-in으로 연결합니다. `debug` exporter는 민감하지
+않은 로컬 데이터에만 `otel-collector-config.dev.yaml`로 사용합니다.
 
 ---
 

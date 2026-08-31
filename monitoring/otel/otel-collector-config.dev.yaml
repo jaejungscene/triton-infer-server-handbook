@@ -1,0 +1,39 @@
+# 로컬 개발 전용 설정: 평문 Jaeger와 debug exporter를 사용한다.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: "0.0.0.0:4318"
+      grpc:
+        endpoint: "0.0.0.0:4317"
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+  batch:
+    timeout: 2s
+    send_batch_size: 256
+    send_batch_max_size: 512
+
+exporters:
+  otlp/jaeger:
+    endpoint: "jaeger:4317"
+    tls:
+      insecure: true
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, debug]

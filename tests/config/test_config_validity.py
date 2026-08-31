@@ -213,6 +213,61 @@ class TestManifest:
 
 
 @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
+class TestOpenTelemetryConfig:
+    """운영 Collector 설정의 보안·신뢰성 경계를 고정한다."""
+
+    def _load_config(self, project_root, filename):
+        path = os.path.join(project_root, "monitoring", "otel", filename)
+        with open(path) as config_file:
+            return yaml.safe_load(config_file)
+
+    def test_production_exporter_requires_tls_backend(self, project_root):
+        config = self._load_config(project_root, "otel-collector-config.yaml")
+        exporter = config["exporters"]["otlp/backend"]
+
+        assert exporter["endpoint"] == "${env:OTEL_EXPORTER_OTLP_ENDPOINT}"
+        assert exporter["tls"]["insecure"] is False
+        assert "debug" not in config["exporters"]
+        assert set(config["receivers"]["otlp"]["protocols"]) == {"http"}
+        assert config["service"]["pipelines"]["traces"]["exporters"] == [
+            "otlp/backend"
+        ]
+
+    def test_production_pipeline_bounds_buffering(self, project_root):
+        config = self._load_config(project_root, "otel-collector-config.yaml")
+        batch = config["processors"]["batch"]
+        exporter = config["exporters"]["otlp/backend"]
+
+        assert batch["send_batch_max_size"] >= batch["send_batch_size"]
+        assert exporter["sending_queue"]["enabled"] is True
+        assert exporter["sending_queue"]["queue_size"] > 0
+        assert exporter["retry_on_failure"]["enabled"] is True
+        assert exporter["retry_on_failure"]["max_elapsed_time"] != "0s"
+        assert config["service"]["pipelines"]["traces"]["processors"] == [
+            "memory_limiter",
+            "batch",
+        ]
+
+    def test_insecure_debug_exporters_are_development_only(self, project_root):
+        production = self._load_config(
+            project_root, "otel-collector-config.yaml"
+        )
+        development = self._load_config(
+            project_root, "otel-collector-config.dev.yaml"
+        )
+
+        assert all(
+            exporter.get("tls", {}).get("insecure") is not True
+            for exporter in production["exporters"].values()
+        )
+        assert development["exporters"]["otlp/jaeger"]["tls"]["insecure"] \
+            is True
+        assert "debug" in development["service"]["pipelines"]["traces"][
+            "exporters"
+        ]
+
+
+@pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
 class TestDeploymentRuntimeArgs:
     """Helm/Kustomize가 Triton 서버를 실행 가능한 인자로 렌더링하는지 검사"""
 

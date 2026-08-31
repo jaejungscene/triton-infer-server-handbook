@@ -1,44 +1,36 @@
-# OpenTelemetry Collector Configuration
-# Triton에서 전송된 trace를 수집 → 백엔드(Jaeger/Zipkin)로 전달
+# 운영용 OpenTelemetry Collector 설정
+# OTEL_EXPORTER_OTLP_ENDPOINT는 TLS 인증서의 SAN과 일치하는 host:port여야 한다.
 
 receivers:
   otlp:
     protocols:
       http:
         endpoint: "0.0.0.0:4318"
-      grpc:
-        endpoint: "0.0.0.0:4317"
 
 processors:
-  batch:
-    timeout: 5s
-    send_batch_size: 512
-
-  # 메모리 제한 (OOM 방지)
   memory_limiter:
     check_interval: 1s
     limit_mib: 512
     spike_limit_mib: 128
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+    send_batch_max_size: 1024
 
 exporters:
-  # Jaeger로 전달 (신규 프로젝트 권장)
-  otlp/jaeger:
-    endpoint: "jaeger:4317"
+  otlp/backend:
+    endpoint: "${env:OTEL_EXPORTER_OTLP_ENDPOINT}"
     tls:
-      insecure: true
-
-  # Zipkin으로 전달 (기존 Zipkin 인프라 연동 시 사용)
-  zipkin:
-    endpoint: "http://zipkin:9411/api/v2/spans"
-    format: proto
-
-  # 디버깅용 콘솔 출력
-  debug:
-    verbosity: basic
-
-  # Prometheus로 span metrics 전달
-  # prometheus:
-  #   endpoint: "0.0.0.0:8889"
+      insecure: false
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 512
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
 
 extensions:
   health_check:
@@ -50,5 +42,4 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp/jaeger, debug]
-    # Zipkin 병행 사용 시: exporters: [otlp/jaeger, zipkin, debug]
+      exporters: [otlp/backend]

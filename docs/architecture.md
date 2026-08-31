@@ -21,6 +21,8 @@ flowchart LR
     metrics --> prometheus["Prometheus"]
     prometheus --> grafana["Grafana"]
     prometheus -.-> alertmanager["External Alertmanager (optional)"]
+    trace --> collector["OTel Collector"]
+    collector --> trace_backend["Trace backend"]
 ```
 
 Ingress는 단순한 protocol 변환기가 아니라 인증 경계입니다. Triton HTTP/gRPC endpoint에는
@@ -28,6 +30,11 @@ inference뿐 아니라 repository load/unload와 shared-memory 관리 API도 있
 Triton Service로 직접 연결하면 안 됩니다. 이 저장소의 Ingress는 inference·health·metadata
 메서드만 allowlist합니다. 모델 제어 API는 CI/CD 또는 운영망 identity만 내부 endpoint로
 호출하고, metrics port는 monitoring namespace에서만 수집합니다.
+
+trace 경로도 동일한 원칙을 적용합니다. Triton은 내부 `ClusterIP` Collector에만 trace를
+전송하고, Collector가 TLS로 조직의 backend에 export합니다. Collector receiver와 health
+port는 외부에 공개하지 않으며 production의 deny-all egress에는 목적지와 포트를 명시적으로
+추가합니다. 세부 배포 계약은 `monitoring/otel/README.md`에 있습니다.
 
 핵심 단위는 세 가지입니다.
 
