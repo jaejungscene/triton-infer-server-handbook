@@ -24,6 +24,13 @@ TorchScript입니다. `torch.load` full-module checkpoint와 Treelite pickle은 
 실행할 수 있으므로, 출처와 SHA-256을 확인한 내부 artifact에만 `--allow-unsafe-pickle`을
 명시합니다. 외부에서 받은 `.pt`·`.pkl`에 이 옵션을 사용하지 않습니다.
 
+TensorRT 변환기는 `--min-shapes`, `--opt-shapes`, `--max-shapes`에 Triton config와 같은 tensor
+name·허용 shape 범위를 명시합니다. 세 profile의 tensor 집합과 rank가 같고 각 차원이
+`min <= opt <= max`인지 확인한 후 `--buildOnly`로 엔진을 만들며, 현행 TensorRT의
+`--memPoolSize=workspace:<MiB>`로 build memory 상한을 둡니다. INT8은 Q/DQ가 포함된 ONNX를
+사용하거나 검증된 calibration cache를 `--calibration-cache`로 전달합니다. 완성된 non-empty
+engine만 기존 `.plan`을 원자 교체합니다.
+
 `health_check.sh`의 URL은 credential이나 path가 없는 HTTP(S) origin만 허용합니다. 인증이 필요한
 내부 운영 endpoint는 `TRITON_AUTH_TOKEN` 환경변수를 사용하며 live, ready, Repository Index
 요청에 같은 Bearer token을 전달합니다. HTTPS 인증서 검증은 기본으로 유지합니다.
