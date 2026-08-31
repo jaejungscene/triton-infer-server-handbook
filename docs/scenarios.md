@@ -115,11 +115,16 @@ shape이나 dtype이 다르면 hit가 나지 않습니다.
 
 - 일반 HTTP infer가 아니라 streaming client로 테스트
 - 마지막 response에 final flag가 전달되는지 확인
-- client disconnect/cancel 시 backend가 중단 가능한지 확인
+- client disconnect/cancel 시 생성 loop가 중단되고 빈 FINAL이 전달되는지 확인
+- `MAX_TOKENS`가 model config의 `max_output_tokens` 상한을 넘을 때 요청별 오류인지 확인
 
 주의:
 Decoupled 모델은 요청 1개에 0개, 1개, 여러 개의 응답을 보낼 수 있습니다. downstream은 일반
 request/response 모델과 다르게 설계해야 합니다.
+template은 token 전체를 list로 만들지 않고 한 token만 미리 읽어 마지막 응답을 판별합니다.
+실제 engine iterator로 교체해도 같은 구조를 유지하고, cancellation을 매 token마다 확인해야
+이미 종료된 요청이 GPU slot과 KV cache를 계속 점유하지 않습니다. 예상하지 못한 engine 상세
+오류는 server log에만 남기고 client에는 안정적인 오류 문구를 반환합니다.
 
 ## 시나리오 6. Production release를 수행한다
 
