@@ -10,6 +10,7 @@ GET /v2/models/{name}/versions/{version}/stats
 
 import argparse
 import json
+import math
 import os
 import urllib.error
 import urllib.request
@@ -18,13 +19,62 @@ from urllib.parse import quote, urlsplit
 
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+_READ_CHUNK_BYTES = 64 * 1024
 
 
 def _validated_base_url(url: str) -> str:
+    if not isinstance(url, str) or not url or url.strip() != url:
+        raise ValueError("url must be an HTTP(S) origin without credentials or path")
     parsed = urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("url must be an absolute HTTP(S) Triton endpoint")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("url must contain a valid HTTP(S) host and port") from exc
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or port == 0
+    ):
+        raise ValueError("url must be an HTTP(S) origin without credentials or path")
     return url.rstrip("/")
+
+
+def _validated_headers(headers: Mapping[str, str] | None) -> dict[str, str]:
+    if headers is None:
+        return {}
+    if not isinstance(headers, Mapping) or not all(
+        isinstance(key, str)
+        and isinstance(value, str)
+        and key
+        and "\r" not in key
+        and "\n" not in key
+        and "\r" not in value
+        and "\n" not in value
+        for key, value in headers.items()
+    ):
+        raise ValueError("headers must contain non-empty safe string keys and values")
+    return dict(headers)
+
+
+def _read_limited(response) -> bytes:
+    chunks = []
+    total = 0
+    while True:
+        chunk = response.read(_READ_CHUNK_BYTES)
+        if not chunk:
+            return b"".join(chunks)
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise RuntimeError(
+                f"Triton statistics response exceeds {MAX_RESPONSE_BYTES} bytes"
+            )
+        chunks.append(chunk)
 
 
 def _request_json(
@@ -32,17 +82,23 @@ def _request_json(
     timeout: float,
     headers: Mapping[str, str] | None,
 ) -> dict:
-    if timeout <= 0:
-        raise ValueError("timeout must be greater than zero")
+    if (
+        not isinstance(timeout, (int, float))
+        or not math.isfinite(timeout)
+        or timeout <= 0
+    ):
+        raise ValueError("timeout must be a finite value greater than zero")
 
-    request = urllib.request.Request(endpoint, headers=dict(headers or {}))
+    request = urllib.request.Request(endpoint, headers=_validated_headers(headers))
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+            payload = json.loads(_read_limited(response).decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"HTTP {exc.code}: {exc.reason}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"서버 연결 실패: {exc.reason}") from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("Triton statistics response is not valid UTF-8") from exc
     except json.JSONDecodeError as exc:
         raise RuntimeError("Triton statistics response is not valid JSON") from exc
 
@@ -70,8 +126,10 @@ def get_model_stats(
     Returns:
         model_stats 딕셔너리
     """
-    if not model_name:
-        raise ValueError("model_name must not be empty")
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError("model_name must be a non-empty string")
+    if version is not None and not isinstance(version, str):
+        raise ValueError("version must be a string when provided")
 
     base_url = _validated_base_url(url)
     encoded_model = quote(model_name, safe="")
