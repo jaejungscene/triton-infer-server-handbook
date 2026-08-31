@@ -15,6 +15,15 @@
 | `model_control/unload.sh` | 런타임 모델 언로드 완료 확인 | explicit mode 운영 |
 | `model_control/reload.sh` | 검증된 artifact를 unload → load | 단일 replica에서는 가용성 공백 발생 |
 
+## 모델 변환의 신뢰 경계
+
+Python 변환기는 입력을 정규 파일로 제한하고 `--expected-sha256`가 주어지면 변환 전에 checksum을
+확인합니다. ONNX는 checker를, TorchScript는 재로딩을 통과한 같은 filesystem의 임시 파일만
+최종 경로로 원자 교체하므로 실패한 변환이 기존 artifact를 덮지 않습니다. PyTorch 기본 입력은
+TorchScript입니다. `torch.load` full-module checkpoint와 Treelite pickle은 역직렬화 중 코드를
+실행할 수 있으므로, 출처와 SHA-256을 확인한 내부 artifact에만 `--allow-unsafe-pickle`을
+명시합니다. 외부에서 받은 `.pt`·`.pkl`에 이 옵션을 사용하지 않습니다.
+
 `health_check.sh`의 URL은 credential이나 path가 없는 HTTP(S) origin만 허용합니다. 인증이 필요한
 내부 운영 endpoint는 `TRITON_AUTH_TOKEN` 환경변수를 사용하며 live, ready, Repository Index
 요청에 같은 Bearer token을 전달합니다. HTTPS 인증서 검증은 기본으로 유지합니다.

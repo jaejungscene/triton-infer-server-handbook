@@ -10,48 +10,57 @@ to_fil.py — sklearn/XGBoost/LightGBM 모델을 FIL 백엔드 형식으로 변�
 """
 
 import argparse
-import sys
+
+from common import ConversionError, atomic_output, validated_input, validated_output
 
 
-def convert_to_fil(model_path, output_path, fmt):
-    print(f"[convert] Loading from {model_path}")
+def convert_to_fil(
+    model_path,
+    output_path,
+    fmt,
+    expected_sha256=None,
+    allow_unsafe_pickle=False,
+):
+    input_path = validated_input(model_path, expected_sha256)
+    destination = validated_output(output_path, input_path)
+    print(f"[convert] Loading from {input_path}")
 
-    if fmt == "xgboost_json":
-        try:
-            import xgboost as xgb
-        except ImportError:
-            print("ERROR: xgboost required", file=sys.stderr)
-            sys.exit(1)
-        model = xgb.Booster()
-        model.load_model(model_path)
-        model.save_model(output_path)
+    with atomic_output(destination) as temporary_output:
+        if fmt == "xgboost_json":
+            try:
+                import xgboost as xgb
+            except ImportError:
+                raise ConversionError("xgboost is required") from None
+            model = xgb.Booster()
+            model.load_model(str(input_path))
+            model.save_model(str(temporary_output))
 
-    elif fmt == "lightgbm":
-        try:
-            import lightgbm as lgb
-        except ImportError:
-            print("ERROR: lightgbm required", file=sys.stderr)
-            sys.exit(1)
-        model = lgb.Booster(model_file=model_path)
-        model.save_model(output_path)
+        elif fmt == "lightgbm":
+            try:
+                import lightgbm as lgb
+            except ImportError:
+                raise ConversionError("lightgbm is required") from None
+            model = lgb.Booster(model_file=str(input_path))
+            model.save_model(str(temporary_output))
 
-    elif fmt == "treelite":
-        try:
-            import pickle
-            import treelite
-        except ImportError:
-            print("ERROR: treelite required", file=sys.stderr)
-            sys.exit(1)
-        with open(model_path, "rb") as f:
-            model = pickle.load(f)
-        tl_model = treelite.sklearn.import_model(model)
-        tl_model.serialize(output_path)
+        else:
+            if not allow_unsafe_pickle:
+                raise ConversionError(
+                    "treelite input uses pickle; pass --allow-unsafe-pickle only "
+                    "for a trusted artifact"
+                )
+            try:
+                import pickle
+                import treelite
+            except ImportError:
+                raise ConversionError("treelite is required") from None
+            print("[convert] WARNING: loading a trusted pickle checkpoint")
+            with input_path.open("rb") as input_file:
+                model = pickle.load(input_file)
+            treelite_model = treelite.sklearn.import_model(model)
+            treelite_model.serialize(str(temporary_output))
 
-    else:
-        print(f"ERROR: Unknown format: {fmt}", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"[convert] Saved to {output_path}")
+    print(f"[convert] Saved to {destination}")
 
 
 def main():
@@ -59,8 +68,23 @@ def main():
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--output-path", required=True)
     parser.add_argument("--format", choices=["xgboost_json", "lightgbm", "treelite"], default="xgboost_json")
+    parser.add_argument("--expected-sha256", help="Expected lowercase SHA-256 of the input")
+    parser.add_argument(
+        "--allow-unsafe-pickle",
+        action="store_true",
+        help="Allow pickle loading for a trusted Treelite input",
+    )
     args = parser.parse_args()
-    convert_to_fil(args.model_path, args.output_path, args.format)
+    try:
+        convert_to_fil(
+            args.model_path,
+            args.output_path,
+            args.format,
+            args.expected_sha256,
+            args.allow_unsafe_pickle,
+        )
+    except (ConversionError, OSError) as error:
+        parser.exit(2, f"ERROR: {error}\n")
 
 
 if __name__ == "__main__":
