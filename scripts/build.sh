@@ -12,6 +12,7 @@ MODELS_SRC="${PROJECT_ROOT}/models/serving"
 BUILD_ENV="dev"
 TAGS=""
 CLEAN=false
+ARTIFACT_ROOT="${PROJECT_ROOT}/.artifacts"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -29,8 +30,13 @@ while [[ $# -gt 0 ]]; do
             CLEAN=true
             shift
             ;;
+        --artifact-root)
+            [[ $# -ge 2 ]] || { echo "--artifact-root requires a value" >&2; exit 2; }
+            ARTIFACT_ROOT="$2"
+            shift 2
+            ;;
         --help|-h)
-            echo "Usage: $0 --env {dev|staging|prod} [--tags tag1,tag2] [--clean]"
+            echo "Usage: $0 --env {dev|staging|prod} [--tags tag1,tag2] [--artifact-root path] [--clean]"
             exit 0
             ;;
         *)
@@ -65,10 +71,11 @@ fi
 echo "[build] Validating and staging models (env=${BUILD_ENV}, tags=${TAGS:-all})"
 
 "${python_bin}" - \
-    "${MANIFEST}" "${MODELS_SRC}" "${MODEL_REPO}" "${BUILD_ENV}" "${TAGS}" "${CLEAN}" \
+    "${MANIFEST}" "${MODELS_SRC}" "${MODEL_REPO}" "${BUILD_ENV}" "${TAGS}" "${CLEAN}" "${ARTIFACT_ROOT}" \
     <<'PYTHON_SCRIPT'
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -92,8 +99,15 @@ model_repo = Path(sys.argv[3]).resolve()
 build_environment = sys.argv[4]
 filter_tags = set(filter(None, sys.argv[5].split(",")))
 clean = sys.argv[6].lower() == "true"
+artifact_root = Path(sys.argv[7]).expanduser().absolute()
 safe_name = re.compile(r"^[A-Za-z0-9._-]+$")
 configured_name = re.compile(r'^\s*name\s*:\s*"([A-Za-z0-9._-]+)"', re.MULTILINE)
+
+sys.path.insert(0, str(manifest_path.parents[2] / "scripts"))
+try:
+    from fetch_artifacts import ArtifactError, load_selected_artifacts
+except ImportError as error:
+    raise SystemExit(f"[build] cannot load artifact contract: {error}") from error
 
 
 def contained_path(base: Path, relative: str, field: str) -> Path:
@@ -123,11 +137,56 @@ def reject_symlinks(base: Path, relative: str, source_path: Path, target: str) -
                 )
 
 
+def copy_verified_artifact(
+    source: Path,
+    destination: Path,
+    expected_size: int,
+    expected_sha256: str,
+) -> None:
+    if not source.is_file() or source.is_symlink():
+        raise SystemExit(f"[build] verified artifact cache file not found: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.name}.", dir=destination.parent
+    )
+    temporary = Path(temporary_name)
+    digest = hashlib.sha256()
+    size = 0
+    try:
+        with os.fdopen(descriptor, "wb") as output, source.open("rb") as artifact_file:
+            while chunk := artifact_file.read(64 * 1024):
+                size += len(chunk)
+                if size > expected_size:
+                    raise SystemExit(f"[build] cached artifact size mismatch: {source}")
+                digest.update(chunk)
+                output.write(chunk)
+            output.flush()
+            os.fsync(output.fileno())
+        if size != expected_size:
+            raise SystemExit(f"[build] cached artifact size mismatch: {source}")
+        if digest.hexdigest() != expected_sha256:
+            raise SystemExit(f"[build] cached artifact SHA-256 mismatch: {source}")
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 with manifest_path.open(encoding="utf-8") as manifest_file:
     manifest = yaml.safe_load(manifest_file)
 
 if not isinstance(manifest, dict) or not isinstance(manifest.get("models"), list):
     raise SystemExit("[build] manifest.yaml must contain a models list")
+
+try:
+    selected_artifacts = load_selected_artifacts(
+        manifest_path, build_environment, filter_tags
+    )
+except ArtifactError as error:
+    raise SystemExit(f"[build] invalid artifact contract: {error}") from error
+artifacts_by_target = {}
+for artifact in selected_artifacts:
+    artifacts_by_target.setdefault(artifact.target, []).append(artifact)
 
 selected_models = []
 targets = set()
@@ -139,7 +198,11 @@ for index, model in enumerate(manifest["models"]):
     target = model.get("target")
     if not isinstance(source, str) or not source:
         raise SystemExit(f"[build] models[{index}].source is required")
-    if not isinstance(target, str) or not safe_name.fullmatch(target):
+    if (
+        not isinstance(target, str)
+        or target in {".", ".."}
+        or not safe_name.fullmatch(target)
+    ):
         raise SystemExit(f"[build] invalid target name at models[{index}]: {target}")
     if target in targets:
         raise SystemExit(f"[build] duplicate target: {target}")
@@ -192,14 +255,20 @@ for index, model in enumerate(manifest["models"]):
             f"{name_match.group(1)}"
         )
 
-    for required_file in required_files:
-        required_path = contained_path(source_path, required_file, "required_files")
-        if not required_path.is_file():
-            raise SystemExit(
-                f"[build] enabled model {target} is missing artifact: {required_file}"
-            )
+    artifact_source = model.get("artifact", "local")
+    if artifact_source not in {"local", "external"}:
+        raise SystemExit(f"[build] enabled model {target} has invalid artifact source")
+    if artifact_source == "local":
+        for required_file in required_files:
+            required_path = contained_path(source_path, required_file, "required_files")
+            if not required_path.is_file():
+                raise SystemExit(
+                    f"[build] enabled model {target} is missing artifact: {required_file}"
+                )
 
-    selected_models.append((source, source_path, target))
+    selected_models.append(
+        (source, source_path, target, required_files, artifacts_by_target.get(target, []))
+    )
 
 if not selected_models:
     raise SystemExit("[build] no enabled models matched the requested tags")
@@ -209,8 +278,23 @@ staging_root = Path(tempfile.mkdtemp(prefix=".triton-build-", dir=model_repo))
 ignore_files = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store")
 
 try:
-    for source, source_path, target in selected_models:
-        shutil.copytree(source_path, staging_root / target, ignore=ignore_files)
+    for source, source_path, target, required_files, artifacts in selected_models:
+        staged_model = staging_root / target
+        shutil.copytree(source_path, staged_model, ignore=ignore_files)
+        for artifact in artifacts:
+            artifact_base = artifact_root / target
+            cached_path = contained_path(artifact_base, artifact.path, "artifact path")
+            destination = contained_path(staged_model, artifact.path, "artifact path")
+            copy_verified_artifact(
+                cached_path, destination, artifact.size_bytes, artifact.sha256
+            )
+
+        for required_file in required_files:
+            required_path = contained_path(staged_model, required_file, "required_files")
+            if not required_path.is_file() or required_path.is_symlink():
+                raise SystemExit(
+                    f"[build] enabled model {target} is missing artifact: {required_file}"
+                )
         print(f"  STAGED: {source} -> {target}")
 
     if clean:
@@ -222,7 +306,7 @@ try:
             else:
                 child.unlink()
 
-    for _, _, target in selected_models:
+    for _, _, target, _, _ in selected_models:
         target_path = contained_path(model_repo, target, "target")
         if target_path.exists():
             if target_path.is_dir() and not target_path.is_symlink():

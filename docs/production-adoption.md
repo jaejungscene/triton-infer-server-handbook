@@ -67,6 +67,7 @@ sequenceDiagram
     participant Prod as Production Triton
     Dev->>CI: PR with config/model changes
     CI->>CI: validate.sh, pytest config, lint
+    CI->>CI: fetch + size/hash verify + receipt
     CI->>CI: build model_repository + candidate image
     Dev->>GPU: manually dispatch main revision
     GPU->>GPU: smoke test candidate digest + promote SHA tag
@@ -91,6 +92,13 @@ model load, metrics, cache 설정 중 하나라도 release 후보와 다르면 �
 않습니다.
 main image build 단계는 GitHub-hosted runner에서 `candidate-<40자리 commit SHA>` tag까지만
 push합니다. 이 성공은 build artifact가 있다는 뜻이지 runtime 검증이나 배포 승인이 아닙니다.
+외부 모델이 선택되면 이 단계는 먼저 manifest의 immutable URI, 크기, SHA-256을 검증하고
+검증 cache만 `model_repository`에 overlay합니다. 허용할 정확한 HTTPS host는 repository
+Variable `ARTIFACT_ALLOWED_HOSTS`, private 저장소의 read-only Bearer token은 Secret
+`MODEL_ARTIFACT_TOKEN`으로 전달합니다. token과 URI query를 제거한 receipt는
+`model-artifact-receipt-<commit SHA>`라는 CI artifact로 90일 보존하며 release evidence에
+연결합니다. 상세 위협 경계와 로컬 검증법은 [외부 모델 Artifact 파이프라인](model-artifacts.md)을
+따릅니다.
 NVIDIA GPU runner가 준비된 시점에 `CI - GPU Release`를 main에서 수동 실행하면 candidate
 registry digest를 직접 smoke test하고, 성공한 동일 digest에만 `<40자리 commit SHA>` release
 tag를 붙입니다. `main`이나 `latest` tag는 만들지 않습니다. GPU runner가 없거나 검증이
@@ -123,7 +131,9 @@ release metadata에 추가하고, staging에서 검증한 바로 그 revision만
 - `model_warmup` 입력 shape와 실제 입력 shape 일치 확인
 - `response_cache`를 켠 모델은 deterministic output인지 확인
 - `instance_group` count와 GPU memory 사용량 확인
-- `scripts/build.sh --env staging --clean` 결과물 확인
+- external 모델은 manifest의 URI·크기·SHA-256과 candidate CI receipt 확인
+- `scripts/fetch_artifacts.py --env staging` 후
+  `scripts/build.sh --env staging --artifact-root .artifacts --clean` 결과물 확인
 - staging에서 Repository Index API, `/ready`, `/stats`, `/metrics` 확인
 - perf baseline 대비 latency/throughput 악화 여부 확인
 
@@ -203,7 +213,8 @@ Compose config 검증 결과를 함께 남깁니다.
 검증합니다.
 
 ```bash
-./scripts/build.sh --env prod --clean
+python scripts/fetch_artifacts.py --env prod --output-dir .artifacts
+./scripts/build.sh --env prod --artifact-root .artifacts --clean
 docker build -f deploy/docker/Dockerfile \
   --build-arg VCS_REF="$(git rev-parse HEAD)" \
   -t "triton-server:$(git rev-parse HEAD)" .

@@ -112,6 +112,7 @@ triton-infer-server-handbook/
 │
 ├── scripts/                             # 운영 자동화 스크립트
 │   ├── build.sh                         # manifest.yaml → model_repository/ 빌드
+│   ├── fetch_artifacts.py               # 외부 모델 HTTPS fetch·크기/hash 검증·receipt
 │   ├── validate.sh                      # config.pbtxt 문법·필드 검증
 │   ├── health_check.sh                  # /v2/health/ready + 모델 상태 확인
 │   ├── convert/                         # 모델 포맷 변환
@@ -228,6 +229,7 @@ triton-infer-server-handbook/
 |------|------|
 | [Triton 서빙 아키텍처](docs/architecture.md) | 요청 처리 경로, 모델 레포지토리 전략, serving 패턴, 관측성 |
 | [Production 도입 가이드](docs/production-adoption.md) | production 도입 단계, release checklist, rollback 기준 |
+| [외부 모델 Artifact 파이프라인](docs/model-artifacts.md) | immutable URI, 크기·SHA-256 검증, CI receipt와 build 연결 |
 | [Production Release Evidence](docs/release-evidence.md) | release identity, 역할, go/no-go 증거, 실패 시 복구 범위 |
 | [실무 시나리오](docs/scenarios.md) | 단일 모델, ensemble, GPU OOM, cache, LLM streaming, release 시나리오 |
 | [Production 장애 대응 Runbook](docs/runbook.md) | alert별 진단, 완화, digest 확인, rollback, 복구 판정 |

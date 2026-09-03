@@ -200,6 +200,48 @@ class TestManifest:
                 for candidate in payload_candidates
             ), f"Enabled model {model['target']} has no runtime payload"
 
+    def test_enabled_external_models_have_pinned_artifacts(self, serving_dir):
+        manifest_path = os.path.join(serving_dir, "manifest.yaml")
+        with open(manifest_path) as manifest_file:
+            manifest = yaml.safe_load(manifest_file)
+
+        checksum_pattern = re.compile(r"^[0-9a-f]{64}$")
+        for model in manifest.get("models", []):
+            if not model.get("enabled", True) or model.get("artifact") != "external":
+                continue
+
+            artifacts = model.get("artifacts")
+            assert artifacts, (
+                f"Enabled external model {model['target']} has no artifacts"
+            )
+            artifact_paths = set()
+            for artifact in artifacts:
+                path = artifact.get("path")
+                assert isinstance(path, str) and path
+                assert path not in artifact_paths
+                artifact_paths.add(path)
+                assert artifact.get("uri", "").startswith("https://")
+                assert checksum_pattern.fullmatch(artifact.get("sha256", ""))
+                size_bytes = artifact.get("size_bytes")
+                assert isinstance(size_bytes, int) and not isinstance(size_bytes, bool)
+                assert size_bytes > 0
+
+            assert artifact_paths == set(model.get("required_files", []))
+
+    def test_candidate_workflow_fetches_artifacts_before_build(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-build-test.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        fetch_position = workflow.index("python scripts/fetch_artifacts.py")
+        build_position = workflow.index("./scripts/build.sh")
+        assert fetch_position < build_position
+        assert "--artifact-root .artifacts" in workflow
+        assert "model-artifact-receipt-${{ github.sha }}" in workflow
+        assert "ARTIFACT_ALLOWED_HOSTS" in workflow
+
     def test_string_warmup_uses_generated_data(self, serving_dir):
         config_path = os.path.join(
             serving_dir, "nlp", "text_classifier", "config.pbtxt"
@@ -776,7 +818,10 @@ class TestReleaseWorkflow:
         with open(workflow_path) as workflow_file:
             workflow = workflow_file.read()
 
-        assert "./scripts/build.sh --env prod --clean" in workflow
+        assert "./scripts/build.sh" in workflow
+        assert "--env prod" in workflow
+        assert "--artifact-root .artifacts" in workflow
+        assert "--clean" in workflow
         assert "./scripts/build.sh --env dev --clean" not in workflow
         assert "- 'client/**'" in workflow
         assert "- 'tests/**'" in workflow

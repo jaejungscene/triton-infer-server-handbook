@@ -74,8 +74,10 @@ Decoupled streaming 모델은 HTTP나 일반 gRPC infer가 아니라 bi-directio
 운영 권장 흐름은 다음과 같습니다.
 
 1. PR에서 `config.pbtxt`, Python backend, manifest를 검증합니다.
-2. CI가 모델 바이너리 또는 외부 artifact를 확보합니다.
-3. release CI는 `scripts/build.sh --env prod --clean`으로 production 모델 세트를 생성합니다.
+2. candidate CI가 `scripts/fetch_artifacts.py --env prod`로 외부 artifact의 host, 크기,
+   SHA-256을 검증하고 정제된 receipt를 남깁니다.
+3. CI는 `scripts/build.sh --env prod --artifact-root .artifacts --clean`으로 cache를 다시
+   검증한 뒤 production 모델 세트를 생성합니다.
 4. main CI가 GitHub-hosted runner에서 image를 candidate tag로 한 번 build/push합니다.
 5. 수동 GPU release workflow가 candidate registry digest를 smoke test한 뒤 SHA release tag로 승격합니다.
 6. staging은 같은 production digest와 모델 세트를 explicit load하고 integration test를 수행합니다.
@@ -89,6 +91,8 @@ GPU runner가 없으면 4단계에서 멈추는 것이 정상입니다. candidat
 image입니다. 모델이 수십 GB라 registry 전송 비용이 더 큰 환경은 PVC/object storage를 쓸 수
 있지만, 그때는 model revision, checksum, 원자적 게시, rollback을 image와 별도로 구현해야
 합니다. 단순히 가변 PVC를 mount하는 것만으로는 재현 가능한 release가 되지 않습니다.
+외부 모델의 manifest 계약, credential 경계와 실패 시 cache 보존 방식은
+[외부 모델 Artifact 파이프라인](model-artifacts.md)에 정리되어 있습니다.
 
 ## 환경별 모델 제어 모드
 

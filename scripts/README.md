@@ -4,6 +4,7 @@
 
 | 스크립트 | 시나리오 | 실행 시점 |
 |----------|----------|-----------|
+| `fetch_artifacts.py` | 외부 모델을 HTTPS로 받아 크기·SHA-256 검증 cache와 receipt 생성 | candidate image build 전 |
 | `build.sh` | manifest.yaml 기반으로 models/serving/ → model_repository/ 동기화 | CI/CD, 로컬 개발 |
 | `validate.sh` | 모든 config.pbtxt 유효성 검사 | PR 시, 배포 전 |
 | `health_check.sh` | 서버 및 모델별 상태 확인 | 배포 후, 모니터링 |
@@ -60,10 +61,17 @@ TRITON_AUTH_TOKEN="$(secret-tool lookup service triton)" \
   scripts/model_control/load.sh text_classifier https://triton.example.com 180
 ```
 
+`fetch_artifacts.py`는 external 모델의 manifest에 URI, 정확한 크기, SHA-256이 모두 있는지
+확인하고 allowlist의 HTTPS host에서만 64KiB 단위로 내려받습니다. 검증이 끝난 전체 결과만
+`.artifacts`로 교체하며, 인증 token과 URI query를 제거한 `receipt.json`을 생성합니다. 로컬
+fixture의 `file://` 접근은 `--local-root`를 명시한 개발 실행에서만 허용합니다. 상세 계약은
+`docs/model-artifacts.md`를 따릅니다.
+
 `build.sh`는 PyYAML로 manifest 전체를 검증하고 모든 선택 모델을 임시 디렉토리에 먼저
 복사한 뒤 성공한 경우에만 `model_repository`를 교체합니다. enabled source·required artifact가
 없거나 `target`과 `config.pbtxt`의 `name`이 다르거나 선택 결과가 0개면 기존 repository를
-수정하지 않고 실패합니다. `--env`는 각 manifest 항목의 선택적 `environments` 허용 목록을
+수정하지 않고 실패합니다. external 모델은 `--artifact-root` cache의 크기와 SHA-256을 다시
+검증해 source tree 위에 overlay합니다. `--env`는 각 manifest 항목의 선택적 `environments` 허용 목록을
 적용하며, 이 필드를 생략한 모델은 세 환경 모두에 배치할 수 있습니다. `.env.*`는 Compose
 설정이며 build 과정에서 shell script로 실행하지 않습니다. 선택한 모델 source에는 symlink를
 허용하지 않습니다. 모델 밖 artifact가 link를 통해 release image에 섞이거나 link 대상 변경으로

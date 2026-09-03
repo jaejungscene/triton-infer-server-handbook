@@ -1,3 +1,4 @@
+import hashlib
 import os
 import shutil
 import subprocess
@@ -26,6 +27,7 @@ def _minimal_project(tmp_path, build_script):
     version_dir.mkdir(parents=True)
     repository.mkdir()
     shutil.copy2(build_script, scripts_dir / "build.sh")
+    shutil.copy2(build_script.parent / "fetch_artifacts.py", scripts_dir)
     (source_dir / "config.pbtxt").write_text(
         'name: "example"\nbackend: "python"\n', encoding="utf-8"
     )
@@ -101,5 +103,101 @@ def test_build_rejects_symlinked_model_payload_without_touching_repository(
 
     assert result.returncode == 1
     assert "contains a symlink: 1/leak.py" in result.stderr
+    assert marker.read_text(encoding="utf-8") == "keep"
+    assert not (project / "model_repository" / "example").exists()
+
+
+def test_build_overlays_only_verified_external_artifact(project_root, tmp_path):
+    project = _minimal_project(tmp_path, Path(project_root) / "scripts" / "build.sh")
+    payload = b"verified-external-model"
+    artifact_root = project / ".artifacts"
+    artifact_path = artifact_root / "example" / "1" / "model.bin"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(payload)
+    manifest_path = project / "models" / "serving" / "manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["models"][0].update(
+        {
+            "artifact": "external",
+            "required_files": ["1/model.bin"],
+            "artifacts": [
+                {
+                    "path": "1/model.bin",
+                    "uri": "https://models.example/model.bin",
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "size_bytes": len(payload),
+                }
+            ],
+        }
+    )
+    manifest_path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            str(project / "scripts" / "build.sh"),
+            "--env",
+            "prod",
+            "--artifact-root",
+            str(artifact_root),
+            "--clean",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHON_BIN": sys.executable},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        project / "model_repository" / "example" / "1" / "model.bin"
+    ).read_bytes() == payload
+
+
+def test_build_rechecks_cached_artifact_without_touching_repository(
+    project_root, tmp_path
+):
+    project = _minimal_project(tmp_path, Path(project_root) / "scripts" / "build.sh")
+    trusted_payload = b"trusted"
+    artifact_root = project / ".artifacts"
+    artifact_path = artifact_root / "example" / "1" / "model.bin"
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(b"changed")
+    manifest_path = project / "models" / "serving" / "manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["models"][0].update(
+        {
+            "artifact": "external",
+            "required_files": ["1/model.bin"],
+            "artifacts": [
+                {
+                    "path": "1/model.bin",
+                    "uri": "https://models.example/model.bin",
+                    "sha256": hashlib.sha256(trusted_payload).hexdigest(),
+                    "size_bytes": len(trusted_payload),
+                }
+            ],
+        }
+    )
+    manifest_path.write_text(yaml.safe_dump(manifest), encoding="utf-8")
+    marker = project / "model_repository" / "preserved"
+    marker.write_text("keep", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            str(project / "scripts" / "build.sh"),
+            "--env",
+            "prod",
+            "--artifact-root",
+            str(artifact_root),
+            "--clean",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHON_BIN": sys.executable},
+    )
+
+    assert result.returncode == 1
+    assert "cached artifact SHA-256 mismatch" in result.stderr
     assert marker.read_text(encoding="utf-8") == "keep"
     assert not (project / "model_repository" / "example").exists()

@@ -14,7 +14,8 @@
 #   - tags: 선택적 빌드 필터링용
 #   - environments: 배치 허용 환경. 생략하면 dev, staging, prod 모두 허용
 #   - enabled: false로 설정하면 빌드에서 제외
-#   - artifact: external 은 Git에 없는 모델 바이너리를 CI/artifact 저장소에서 배치해야 함
+#   - artifact: external 은 artifacts 목록의 URI·크기·SHA-256을 검증해 CI가 배치
+#   - artifacts: 활성화 전에 docs/model-artifacts.md 계약에 맞는 항목을 반드시 추가
 # =============================================================================
 
 models:

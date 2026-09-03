@@ -14,12 +14,14 @@ release identity, 단계별 gate, 실패 시 복구 범위를 한곳에 정리�
 | source revision | `main`에 포함된 40자리 commit SHA | `git merge-base --is-ancestor` 성공 |
 | serving image | `ghcr.io/...@sha256:<digest>` | registry digest와 Pod `imageID` 일치 |
 | model set | image에 포함된 production `model_repository` | build log와 필수 모델 inference |
+| external artifacts | manifest가 고정한 크기·SHA-256의 검증 cache | `model-artifact-receipt-<SHA>` CI artifact |
 | deployment config | 같은 SHA의 prod Kustomize overlay | workflow checkout SHA와 render 결과 |
 | environment | 승인된 kube context와 `production` namespace | context 검증 log |
 
 commit SHA는 source와 manifest를 선택하는 값이고 image digest는 실제 배포 byte를 식별하는
 값입니다. 둘을 같은 값처럼 기록하지 않습니다. 외부 PVC/object storage를 쓰면 model revision과
-checksum을 별도 필수 identity로 추가합니다.
+checksum을 별도 필수 identity로 추가합니다. image-bundled external 모델도 candidate CI의
+정제된 `receipt.json`을 보존해 manifest 선언과 실제로 포함한 byte를 연결합니다.
 
 ```mermaid
 flowchart LR

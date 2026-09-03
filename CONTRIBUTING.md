@@ -6,7 +6,8 @@
 2. `models/serving/{domain}/` 아래에 배치합니다.
 3. `models/serving/manifest.yaml`에 source→target 매핑을 추가합니다.
 4. `config.pbtxt`를 수정합니다 (input/output shape, backend).
-5. PR을 생성합니다. CI가 자동으로 config 검증을 수행합니다.
+5. 외부 모델이면 URI, 크기, SHA-256을 `artifacts`에 기록하고 로컬 fetch/build를 검증합니다.
+6. PR을 생성합니다. CI가 자동으로 config와 artifact 계약을 검증합니다.
 
 ## 브랜치 전략
 
@@ -27,6 +28,8 @@ Prometheus rule, shell 문법을 검사합니다. 제출 전 최소 검증은 �
 
 ```bash
 ./scripts/validate.sh
+python scripts/fetch_artifacts.py --env prod --output-dir .artifacts
+./scripts/build.sh --env prod --artifact-root .artifacts --clean
 pytest tests/
 ruff check models/ client/ tests/ scripts/ --select E,W,F --ignore E501
 helm lint deploy/helm/triton \
