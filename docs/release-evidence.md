@@ -14,12 +14,14 @@ release identity, 단계별 gate, 실패 시 복구 범위를 한곳에 정리�
 | source revision | `main`에 포함된 40자리 commit SHA | `git merge-base --is-ancestor` 성공 |
 | serving image | `ghcr.io/...@sha256:<digest>` | registry digest와 Pod `imageID` 일치 |
 | model set | image에 포함된 production `model_repository` | build log와 필수 모델 inference |
+| external artifacts | manifest가 고정한 크기·SHA-256의 검증 cache | `model-artifact-receipt-<SHA>` CI artifact |
 | deployment config | 같은 SHA의 prod Kustomize overlay | workflow checkout SHA와 render 결과 |
 | environment | 승인된 kube context와 `production` namespace | context 검증 log |
 
 commit SHA는 source와 manifest를 선택하는 값이고 image digest는 실제 배포 byte를 식별하는
 값입니다. 둘을 같은 값처럼 기록하지 않습니다. 외부 PVC/object storage를 쓰면 model revision과
-checksum을 별도 필수 identity로 추가합니다.
+checksum을 별도 필수 identity로 추가합니다. image-bundled external 모델도 candidate CI의
+정제된 `receipt.json`을 보존해 manifest 선언과 실제로 포함한 byte를 연결합니다.
 
 ```mermaid
 flowchart LR
@@ -27,7 +29,9 @@ flowchart LR
     candidate --> contract["Manual GPU runtime contract tests"]
     contract --> release["SHA release tag"]
     release --> staging["Staging rollout and integration"]
-    staging --> approval["Production approval"]
+    staging --> perf["Exact-digest performance evidence"]
+    perf --> preflight["Production preflight"]
+    preflight --> approval["Production approval"]
     approval --> prod["Production digest rollout"]
     prod --> evidence["Pod, model, cache evidence"]
     evidence --> observe["Metrics observation"]
@@ -54,10 +58,13 @@ flowchart LR
    같은 digest에 붙입니다.
 4. staging은 그 digest를 배포하고 전체 integration suite를 실행합니다. 실패하면 직전 image를
    복원하되 image 외 manifest 변경은 이전 GitOps revision으로 별도 복원합니다.
-5. 승인자는 같은 SHA의 perf 결과와 아래 go/no-go 항목을 확인합니다.
-6. production은 Deployment 선언 image와 모든 Triton Pod의 runtime digest를 대조한 뒤 health,
+5. 수동 perf workflow는 SHA release tag의 정확한 digest를 직접 실행하고 전체 ready 모델의
+   baseline 통과 evidence를 생성합니다.
+6. production preflight는 현재 release digest와 trusted perf run, workload/CSV hash를
+   재검증합니다. 통과해야 Environment 승인 단계가 열립니다.
+7. production은 Deployment 선언 image와 모든 Triton Pod의 runtime digest를 대조한 뒤 health,
    필수 모델 output, cache counter를 다시 검증합니다.
-7. 배포 뒤 최소 5분간 error rate, 평균 latency, queue time, GPU memory를 관찰합니다. 조직 SLO가
+8. 배포 뒤 최소 5분간 error rate, 평균 latency, queue time, GPU memory를 관찰합니다. 조직 SLO가
    더 긴 window를 요구하면 그 시간을 우선합니다.
 
 ## 단계별 필수 증거
@@ -68,7 +75,8 @@ flowchart LR
 | candidate | production 모델 세트를 포함한 image digest 기록 | candidate만 유지, 배포 금지 |
 | GPU release | runtime contract test 성공, candidate/release digest 동일 | SHA release tag 미생성 |
 | staging | rollout, readiness, integration 성공 | 직전 image 복원 또는 최초 배포 실패 명시 |
-| approval | 동일 SHA perf artifact, 변경·rollback 단위 확인 | production 실행 보류 |
+| performance | release digest 직접 실행, 전체 ready 모델 baseline과 evidence 검증 성공 | production preflight 실패 |
+| approval | exact-digest preflight, 변경·rollback 단위 확인 | production Environment 승인 요청 없음 |
 | production | Deployment image와 Pod `imageID` 일치, 필수 모델/cache gate 성공 | Deployment 자동 rollback |
 | post-deploy | critical alert 없음, SLO signal 정상 | traffic 완화 후 전체 release 복원 |
 
@@ -83,7 +91,8 @@ release issue나 변경관리 시스템에 옮깁니다. kubeconfig, token, 고�
 - 요청 SHA가 `origin/main`에 포함되고 GPU 검증을 거친 candidate와 release tag의 registry digest가 같다.
 - staging Deployment와 Pod가 같은 digest를 실행하며 integration test가 통과했다.
 - 필수 모델의 name, version, input/output dtype·shape가 client contract와 일치한다.
-- 같은 image SHA의 성능 결과가 합의한 throughput 하한과 p95 latency 상한을 만족한다.
+- 현재 release tag의 image digest와 performance evidence의 digest가 정확히 같고, 같은 SHA의
+  baseline/profile 및 모든 결과 CSV hash가 검증된다.
 - GPU 종류, replica, HPA/PDB, NetworkPolicy와 model repository 방식이 승인 내용과 같다.
 - rollback할 이전 정상 SHA와 담당자가 정해져 있고 외부 model revision도 복원 가능하다.
 - 배포 시간대의 당직자와 관찰 window가 확보됐다.
@@ -119,7 +128,9 @@ source_sha: <40-char main SHA>
 image_digest: sha256:<64-hex>
 model_revision: image-bundled | <external revision + checksum>
 staging_run: <workflow URL>
-perf_artifact: <artifact URL and profile>
+perf_run: <trusted workflow run ID>
+perf_workflow_revision: <40-char main SHA>
+perf_artifact: perf-gate-<source SHA>-<image digest>
 approved_by: <name>
 deployed_at: <UTC timestamp>
 observation_result: <SLO signals and alert state>

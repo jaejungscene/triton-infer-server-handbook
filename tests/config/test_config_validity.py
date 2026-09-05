@@ -200,6 +200,48 @@ class TestManifest:
                 for candidate in payload_candidates
             ), f"Enabled model {model['target']} has no runtime payload"
 
+    def test_enabled_external_models_have_pinned_artifacts(self, serving_dir):
+        manifest_path = os.path.join(serving_dir, "manifest.yaml")
+        with open(manifest_path) as manifest_file:
+            manifest = yaml.safe_load(manifest_file)
+
+        checksum_pattern = re.compile(r"^[0-9a-f]{64}$")
+        for model in manifest.get("models", []):
+            if not model.get("enabled", True) or model.get("artifact") != "external":
+                continue
+
+            artifacts = model.get("artifacts")
+            assert artifacts, (
+                f"Enabled external model {model['target']} has no artifacts"
+            )
+            artifact_paths = set()
+            for artifact in artifacts:
+                path = artifact.get("path")
+                assert isinstance(path, str) and path
+                assert path not in artifact_paths
+                artifact_paths.add(path)
+                assert artifact.get("uri", "").startswith("https://")
+                assert checksum_pattern.fullmatch(artifact.get("sha256", ""))
+                size_bytes = artifact.get("size_bytes")
+                assert isinstance(size_bytes, int) and not isinstance(size_bytes, bool)
+                assert size_bytes > 0
+
+            assert artifact_paths == set(model.get("required_files", []))
+
+    def test_candidate_workflow_fetches_artifacts_before_build(self, project_root):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-build-test.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        fetch_position = workflow.index("python scripts/fetch_artifacts.py")
+        build_position = workflow.index("./scripts/build.sh")
+        assert fetch_position < build_position
+        assert "--artifact-root .artifacts" in workflow
+        assert "model-artifact-receipt-${{ github.sha }}" in workflow
+        assert "ARTIFACT_ALLOWED_HOSTS" in workflow
+
     def test_string_warmup_uses_generated_data(self, serving_dir):
         config_path = os.path.join(
             serving_dir, "nlp", "text_classifier", "config.pbtxt"
@@ -210,6 +252,61 @@ class TestManifest:
         assert "model_warmup" in config
         assert "zero_data: true" in config
         assert "input_data_file" not in config
+
+
+@pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
+class TestOpenTelemetryConfig:
+    """운영 Collector 설정의 보안·신뢰성 경계를 고정한다."""
+
+    def _load_config(self, project_root, filename):
+        path = os.path.join(project_root, "monitoring", "otel", filename)
+        with open(path) as config_file:
+            return yaml.safe_load(config_file)
+
+    def test_production_exporter_requires_tls_backend(self, project_root):
+        config = self._load_config(project_root, "otel-collector-config.yaml")
+        exporter = config["exporters"]["otlp/backend"]
+
+        assert exporter["endpoint"] == "${env:OTEL_EXPORTER_OTLP_ENDPOINT}"
+        assert exporter["tls"]["insecure"] is False
+        assert "debug" not in config["exporters"]
+        assert set(config["receivers"]["otlp"]["protocols"]) == {"http"}
+        assert config["service"]["pipelines"]["traces"]["exporters"] == [
+            "otlp/backend"
+        ]
+
+    def test_production_pipeline_bounds_buffering(self, project_root):
+        config = self._load_config(project_root, "otel-collector-config.yaml")
+        batch = config["processors"]["batch"]
+        exporter = config["exporters"]["otlp/backend"]
+
+        assert batch["send_batch_max_size"] >= batch["send_batch_size"]
+        assert exporter["sending_queue"]["enabled"] is True
+        assert exporter["sending_queue"]["queue_size"] > 0
+        assert exporter["retry_on_failure"]["enabled"] is True
+        assert exporter["retry_on_failure"]["max_elapsed_time"] != "0s"
+        assert config["service"]["pipelines"]["traces"]["processors"] == [
+            "memory_limiter",
+            "batch",
+        ]
+
+    def test_insecure_debug_exporters_are_development_only(self, project_root):
+        production = self._load_config(
+            project_root, "otel-collector-config.yaml"
+        )
+        development = self._load_config(
+            project_root, "otel-collector-config.dev.yaml"
+        )
+
+        assert all(
+            exporter.get("tls", {}).get("insecure") is not True
+            for exporter in production["exporters"].values()
+        )
+        assert development["exporters"]["otlp/jaeger"]["tls"]["insecure"] \
+            is True
+        assert "debug" in development["service"]["pipelines"]["traces"][
+            "exporters"
+        ]
 
 
 @pytest.mark.skipif(not HAS_YAML, reason="PyYAML not installed")
@@ -614,6 +711,54 @@ class TestReleaseWorkflow:
         assert "- 'monitoring/**'" in workflow
         assert "- '**/*.md'" in workflow
 
+    def test_kubernetes_prometheus_discovery_preserves_pod_address(
+        self, project_root
+    ):
+        config_path = os.path.join(
+            project_root,
+            "monitoring",
+            "prometheus",
+            "kubernetes_scrape_config.yml",
+        )
+        with open(config_path) as config_file:
+            config = yaml.safe_load(config_file)
+        relabel_configs = config["scrape_configs"][0]["relabel_configs"]
+
+        address_rules = [
+            rule
+            for rule in relabel_configs
+            if rule.get("target_label") == "__address__"
+        ]
+        assert len(address_rules) == 2
+        assert all(
+            rule["source_labels"]
+            == [
+                "__meta_kubernetes_pod_ip",
+                "__meta_kubernetes_pod_annotation_prometheus_io_port",
+            ]
+            for rule in address_rules
+        )
+        assert {rule["replacement"] for rule in address_rules} == {
+            "$1:$2",
+            "[$1]:$2",
+        }
+
+        environment_rule = next(
+            rule
+            for rule in relabel_configs
+            if rule.get("target_label") == "environment"
+        )
+        assert environment_rule["source_labels"] == [
+            "__meta_kubernetes_namespace"
+        ]
+
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "ci-validate.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+        assert "check config /etc/prometheus/kubernetes_scrape_config.yml" in workflow
+
     def test_pr_ci_runs_offline_unit_suites(self, project_root):
         workflow_path = os.path.join(
             project_root, ".github", "workflows", "ci-validate.yml"
@@ -673,7 +818,10 @@ class TestReleaseWorkflow:
         with open(workflow_path) as workflow_file:
             workflow = workflow_file.read()
 
-        assert "./scripts/build.sh --env prod --clean" in workflow
+        assert "./scripts/build.sh" in workflow
+        assert "--env prod" in workflow
+        assert "--artifact-root .artifacts" in workflow
+        assert "--clean" in workflow
         assert "./scripts/build.sh --env dev --clean" not in workflow
         assert "- 'client/**'" in workflow
         assert "- 'tests/**'" in workflow
@@ -732,7 +880,7 @@ class TestReleaseWorkflow:
 
             assert "docker buildx imagetools inspect" in workflow
             assert "^sha256:[0-9a-f]{64}$" in workflow
-            assert 'IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}' in workflow
+            assert "${REGISTRY}/${IMAGE_NAME}@${DIGEST}" in workflow
             assert 'kustomize edit set image "triton-server=${IMAGE_REF}"' in workflow
 
     def test_production_verifies_the_runtime_image_digest(self, project_root):
@@ -757,11 +905,51 @@ class TestReleaseWorkflow:
         with open(workflow_path) as workflow_file:
             workflow = workflow_file.read()
 
-        assert "./scripts/build.sh --env prod --clean" in workflow
-        assert "--file deploy/docker/Dockerfile" in workflow
-        assert "--tag triton-server:perf" in workflow
+        assert "release_sha:" in workflow
+        assert "docker buildx imagetools inspect" in workflow
+        assert 'docker pull "${RELEASE_IMAGE}"' in workflow
+        assert '"${RELEASE_IMAGE}" \\' in workflow
+        assert "docker build " not in workflow
+        assert "release_evidence.py create" in workflow
+        assert "perf-gate-${{ inputs.release_sha }}-${{ steps.release.outputs.digest_hex }}" in workflow
+        assert "if: ${{ inputs.model == '' }}" in workflow
         assert "--cache-config=local,size=67108864" in workflow
+        assert "--http-thread-count=8" in workflow
+        assert "--grpc-infer-thread-count=8" in workflow
+        assert "--rate-limit=execution_count" in workflow
         assert "-v $(pwd)/model_repository:/models:ro" not in workflow
+
+    def test_production_requires_exact_digest_performance_evidence(
+        self, project_root
+    ):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "cd-production.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "actions: read" in workflow
+        assert '"${GITHUB_REF}" != "refs/heads/main"' in workflow
+        assert "perf-gate-${IMAGE_TAG}-${IMAGE_DIGEST#sha256:}" in workflow
+        assert '.conclusion == "success"' in workflow
+        assert '.path == ".github/workflows/perf-benchmark.yml"' in workflow
+        assert "uses: actions/download-artifact@" in workflow
+        assert "artifact-ids: ${{ steps.performance.outputs.artifact_id }}" in workflow
+        assert "release_evidence.py verify" in workflow
+        assert '--image-digest "${IMAGE_DIGEST}"' in workflow
+        assert '--workflow-run-id "${PERFORMANCE_RUN_ID}"' in workflow
+        assert '--workflow-run-attempt "${PERFORMANCE_RUN_ATTEMPT}"' in workflow
+        assert '--workflow-revision "${PERFORMANCE_WORKFLOW_REVISION}"' in workflow
+        assert "needs: release-preflight" in workflow
+        assert "needs.release-preflight.result == 'success'" in workflow
+        assert '"${ROLLBACK}" != "true"' in workflow
+        assert workflow.count("if: ${{ github.event.inputs.rollback != 'true' }}") >= 10
+        assert workflow.index("- name: Verify exact release performance evidence") < workflow.index(
+            "  deploy-production:"
+        )
+        assert workflow.index("  deploy-production:") < workflow.index(
+            "- name: Deploy new version"
+        )
 
     def test_deploy_workflows_verify_kube_context(self, project_root):
         workflow_expectations = {
@@ -925,7 +1113,11 @@ class TestImmutableModelRelease:
         )
         with open(workflow_path) as workflow_file:
             workflow = workflow_file.read()
-        assert workflow.count(prometheus_image) == 3
+        promtool_invocations = workflow.count(
+            "docker run --rm --entrypoint /bin/promtool"
+        )
+        assert promtool_invocations >= 4
+        assert workflow.count(prometheus_image) == promtool_invocations
 
     def test_ci_smoke_tests_the_bundled_repository(self, project_root):
         build_workflow_path = os.path.join(

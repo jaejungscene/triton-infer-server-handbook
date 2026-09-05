@@ -4,6 +4,7 @@
 
 | 스크립트 | 시나리오 | 실행 시점 |
 |----------|----------|-----------|
+| `fetch_artifacts.py` | 외부 모델을 HTTPS로 받아 크기·SHA-256 검증 cache와 receipt 생성 | candidate image build 전 |
 | `build.sh` | manifest.yaml 기반으로 models/serving/ → model_repository/ 동기화 | CI/CD, 로컬 개발 |
 | `validate.sh` | 모든 config.pbtxt 유효성 검사 | PR 시, 배포 전 |
 | `health_check.sh` | 서버 및 모델별 상태 확인 | 배포 후, 모니터링 |
@@ -14,6 +15,22 @@
 | `model_control/load.sh` | 런타임 모델 로드 후 ready 확인 | explicit mode 운영 |
 | `model_control/unload.sh` | 런타임 모델 언로드 완료 확인 | explicit mode 운영 |
 | `model_control/reload.sh` | 검증된 artifact를 unload → load | 단일 replica에서는 가용성 공백 발생 |
+
+## 모델 변환의 신뢰 경계
+
+Python 변환기는 입력을 정규 파일로 제한하고 `--expected-sha256`가 주어지면 변환 전에 checksum을
+확인합니다. ONNX는 checker를, TorchScript는 재로딩을 통과한 같은 filesystem의 임시 파일만
+최종 경로로 원자 교체하므로 실패한 변환이 기존 artifact를 덮지 않습니다. PyTorch 기본 입력은
+TorchScript입니다. `torch.load` full-module checkpoint와 Treelite pickle은 역직렬화 중 코드를
+실행할 수 있으므로, 출처와 SHA-256을 확인한 내부 artifact에만 `--allow-unsafe-pickle`을
+명시합니다. 외부에서 받은 `.pt`·`.pkl`에 이 옵션을 사용하지 않습니다.
+
+TensorRT 변환기는 `--min-shapes`, `--opt-shapes`, `--max-shapes`에 Triton config와 같은 tensor
+name·허용 shape 범위를 명시합니다. 세 profile의 tensor 집합과 rank가 같고 각 차원이
+`min <= opt <= max`인지 확인한 후 `--buildOnly`로 엔진을 만들며, 현행 TensorRT의
+`--memPoolSize=workspace:<MiB>`로 build memory 상한을 둡니다. INT8은 Q/DQ가 포함된 ONNX를
+사용하거나 검증된 calibration cache를 `--calibration-cache`로 전달합니다. 완성된 non-empty
+engine만 기존 `.plan`을 원자 교체합니다.
 
 `health_check.sh`의 URL은 credential이나 path가 없는 HTTP(S) origin만 허용합니다. 인증이 필요한
 내부 운영 endpoint는 `TRITON_AUTH_TOKEN` 환경변수를 사용하며 live, ready, Repository Index
@@ -44,9 +61,19 @@ TRITON_AUTH_TOKEN="$(secret-tool lookup service triton)" \
   scripts/model_control/load.sh text_classifier https://triton.example.com 180
 ```
 
+`fetch_artifacts.py`는 external 모델의 manifest에 URI, 정확한 크기, SHA-256이 모두 있는지
+확인하고 allowlist의 HTTPS host에서만 64KiB 단위로 내려받습니다. 검증이 끝난 전체 결과만
+`.artifacts`로 교체하며, 인증 token과 URI query를 제거한 `receipt.json`을 생성합니다. 로컬
+fixture의 `file://` 접근은 `--local-root`를 명시한 개발 실행에서만 허용합니다. 상세 계약은
+`docs/model-artifacts.md`를 따릅니다.
+
 `build.sh`는 PyYAML로 manifest 전체를 검증하고 모든 선택 모델을 임시 디렉토리에 먼저
 복사한 뒤 성공한 경우에만 `model_repository`를 교체합니다. enabled source·required artifact가
 없거나 `target`과 `config.pbtxt`의 `name`이 다르거나 선택 결과가 0개면 기존 repository를
-수정하지 않고 실패합니다. `--env`는 각 manifest 항목의 선택적 `environments` 허용 목록을
+수정하지 않고 실패합니다. external 모델은 `--artifact-root` cache의 크기와 SHA-256을 다시
+검증해 source tree 위에 overlay합니다. `--env`는 각 manifest 항목의 선택적 `environments` 허용 목록을
 적용하며, 이 필드를 생략한 모델은 세 환경 모두에 배치할 수 있습니다. `.env.*`는 Compose
-설정이며 build 과정에서 shell script로 실행하지 않습니다.
+설정이며 build 과정에서 shell script로 실행하지 않습니다. 선택한 모델 source에는 symlink를
+허용하지 않습니다. 모델 밖 artifact가 link를 통해 release image에 섞이거나 link 대상 변경으로
+같은 commit의 빌드 결과가 달라지는 일을 막기 위한 경계이므로, 공통 파일도 각 모델 source에
+명시적으로 복사하고 checksum을 manifest 승격 기록에 남깁니다.

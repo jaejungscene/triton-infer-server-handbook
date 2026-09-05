@@ -21,6 +21,8 @@ flowchart LR
     metrics --> prometheus["Prometheus"]
     prometheus --> grafana["Grafana"]
     prometheus -.-> alertmanager["External Alertmanager (optional)"]
+    trace --> collector["OTel Collector"]
+    collector --> trace_backend["Trace backend"]
 ```
 
 Ingress는 단순한 protocol 변환기가 아니라 인증 경계입니다. Triton HTTP/gRPC endpoint에는
@@ -28,6 +30,11 @@ inference뿐 아니라 repository load/unload와 shared-memory 관리 API도 있
 Triton Service로 직접 연결하면 안 됩니다. 이 저장소의 Ingress는 inference·health·metadata
 메서드만 allowlist합니다. 모델 제어 API는 CI/CD 또는 운영망 identity만 내부 endpoint로
 호출하고, metrics port는 monitoring namespace에서만 수집합니다.
+
+trace 경로도 동일한 원칙을 적용합니다. Triton은 내부 `ClusterIP` Collector에만 trace를
+전송하고, Collector가 TLS로 조직의 backend에 export합니다. Collector receiver와 health
+port는 외부에 공개하지 않으며 production의 deny-all egress에는 목적지와 포트를 명시적으로
+추가합니다. 세부 배포 계약은 `monitoring/otel/README.md`에 있습니다.
 
 핵심 단위는 세 가지입니다.
 
@@ -67,13 +74,17 @@ Decoupled streaming 모델은 HTTP나 일반 gRPC infer가 아니라 bi-directio
 운영 권장 흐름은 다음과 같습니다.
 
 1. PR에서 `config.pbtxt`, Python backend, manifest를 검증합니다.
-2. CI가 모델 바이너리 또는 외부 artifact를 확보합니다.
-3. release CI는 `scripts/build.sh --env prod --clean`으로 production 모델 세트를 생성합니다.
+2. candidate CI가 `scripts/fetch_artifacts.py --env prod`로 외부 artifact의 host, 크기,
+   SHA-256을 검증하고 정제된 receipt를 남깁니다.
+3. CI는 `scripts/build.sh --env prod --artifact-root .artifacts --clean`으로 cache를 다시
+   검증한 뒤 production 모델 세트를 생성합니다.
 4. main CI가 GitHub-hosted runner에서 image를 candidate tag로 한 번 build/push합니다.
 5. 수동 GPU release workflow가 candidate registry digest를 smoke test한 뒤 SHA release tag로 승격합니다.
 6. staging은 같은 production digest와 모델 세트를 explicit load하고 integration test를 수행합니다.
-7. 별도 GPU workflow에서 같은 revision의 perf baseline을 수동으로 비교합니다.
-8. production은 승인된 SHA가 가리키는 digest를 배포하고 실패 시 이전 release를 적용합니다.
+7. 별도 GPU workflow가 SHA release tag의 정확한 digest를 직접 실행해 전체 ready 모델 성능
+   evidence를 생성합니다.
+8. production preflight는 현재 release digest와 evidence의 digest·workload·결과 hash를
+   재검증하고, 통과한 경우에만 승인을 거쳐 같은 digest를 배포합니다.
 
 GPU runner가 없으면 4단계에서 멈추는 것이 정상입니다. candidate tag는 build 결과를 보존할
 뿐 release identity가 아니며 staging과 production workflow는 SHA release tag만 허용합니다.
@@ -82,6 +93,10 @@ GPU runner가 없으면 4단계에서 멈추는 것이 정상입니다. candidat
 image입니다. 모델이 수십 GB라 registry 전송 비용이 더 큰 환경은 PVC/object storage를 쓸 수
 있지만, 그때는 model revision, checksum, 원자적 게시, rollback을 image와 별도로 구현해야
 합니다. 단순히 가변 PVC를 mount하는 것만으로는 재현 가능한 release가 되지 않습니다.
+외부 모델의 manifest 계약, credential 경계와 실패 시 cache 보존 방식은
+[외부 모델 Artifact 파이프라인](model-artifacts.md)에 정리되어 있습니다.
+성능 측정과 실제 배포 byte를 연결하는 계약은
+[정확한 Release Digest 성능 Gate](performance-gate.md)를 따릅니다.
 
 ## 환경별 모델 제어 모드
 
@@ -111,7 +126,10 @@ BLS template은 함께 제공되는 ensemble preprocessor와 inferencer를 호�
 출발점이므로 입력을 UINT8 HWC로 선언합니다. 다른 하위 모델을 호출하도록 바꾸면 BLS config의
 dtype/shape, 내부 `pb_utils.Tensor` 이름, requested output 이름, warmup 입력을 한 계약으로
 같이 변경해야 합니다. 하위 응답에서 tensor가 누락된 경우에는 요청별 오류로 처리해야 batch의
-다른 요청까지 잃지 않습니다.
+다른 요청까지 잃지 않습니다. template은 각 요청의 tensor 변환과 내부 호출을 별도로 격리하므로
+예상하지 못한 Python 예외도 같은 batch의 정상 요청을 중단하지 않습니다. 내부 모델의 상세
+오류는 server log에 남기고 client에는 실패 stage만 반환합니다. 운영에서는 이 log를 request
+ID·trace ID와 연결하되 입력 원문이나 인증 정보는 기록하지 않습니다.
 
 ## 관측성
 

@@ -1,5 +1,6 @@
 import csv
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -71,3 +72,51 @@ def test_compare_fails_for_throughput_and_latency_regression(tmp_path):
     assert result.returncode == 1
     assert "throughput" in result.stderr
     assert "p95" in result.stderr
+
+
+def test_compare_rejects_non_finite_measurement(tmp_path):
+    baseline_path = _write_fixture(
+        tmp_path, throughput=math.nan, p95_latency_us=45_000
+    )
+
+    result = _run_compare(tmp_path, baseline_path)
+
+    assert result.returncode == 2
+    assert "throughput must be finite" in result.stderr
+
+
+def test_compare_rejects_fractional_concurrency(tmp_path):
+    baseline_path = _write_fixture(tmp_path, throughput=120, p95_latency_us=45_000)
+    csv_path = tmp_path / "sample_model_perf.csv"
+    content = csv_path.read_text(encoding="utf-8").replace("8,120", "8.5,120")
+    csv_path.write_text(content, encoding="utf-8")
+
+    result = _run_compare(tmp_path, baseline_path)
+
+    assert result.returncode == 2
+    assert "concurrency must be an integer" in result.stderr
+
+
+def test_compare_rejects_non_finite_baseline(tmp_path):
+    baseline_path = _write_fixture(tmp_path, throughput=120, p95_latency_us=45_000)
+    baseline = baseline_path.read_text(encoding="utf-8").replace(
+        '"min_throughput": 100', '"min_throughput": NaN'
+    )
+    baseline_path.write_text(baseline, encoding="utf-8")
+
+    result = _run_compare(tmp_path, baseline_path)
+
+    assert result.returncode == 2
+    assert "non-finite JSON value" in result.stderr
+
+
+def test_compare_rejects_duplicate_target_measurements(tmp_path):
+    baseline_path = _write_fixture(tmp_path, throughput=120, p95_latency_us=45_000)
+    csv_path = tmp_path / "sample_model_perf.csv"
+    with csv_path.open("a", encoding="utf-8") as csv_file:
+        csv_file.write("8,121,44000\n")
+
+    result = _run_compare(tmp_path, baseline_path)
+
+    assert result.returncode == 2
+    assert "duplicate measurements" in result.stderr

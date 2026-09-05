@@ -2,11 +2,12 @@
 # OpenTelemetry Tracing — 요청 추적 (운영 권장)
 # =============================================================================
 # OpenTelemetry Collector로 trace 데이터를 전송
-# Collector 설정: monitoring/otel/otel-collector-config.yaml
+# Collector 설정과 배포 계약: monitoring/otel/README.md
+# 이 파일은 인수 템플릿이다. 배포 도구에서 OTEL_COLLECTOR_URL을 명시적으로 렌더링한다.
 # =============================================================================
 
 --trace-config=mode=opentelemetry
---trace-config=opentelemetry,url=${OTEL_COLLECTOR_URL:-http://otel-collector:4318/v1/traces}
+--trace-config=opentelemetry,url=${OTEL_COLLECTOR_URL}
 --trace-config=opentelemetry,resource=service.name=triton-inference-server
 --trace-config=level=TIMESTAMPS
 --trace-config=rate=100

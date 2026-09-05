@@ -112,6 +112,7 @@ triton-infer-server-handbook/
 │
 ├── scripts/                             # 운영 자동화 스크립트
 │   ├── build.sh                         # manifest.yaml → model_repository/ 빌드
+│   ├── fetch_artifacts.py               # 외부 모델 HTTPS fetch·크기/hash 검증·receipt
 │   ├── validate.sh                      # config.pbtxt 문법·필드 검증
 │   ├── health_check.sh                  # /v2/health/ready + 모델 상태 확인
 │   ├── convert/                         # 모델 포맷 변환
@@ -174,20 +175,24 @@ triton-infer-server-handbook/
 │
 ├── monitoring/                          # 메트릭·트레이싱·알림
 │   ├── prometheus/
-│   │   ├── scrape_config.yml            # Compose 서비스 triton:8002/metrics 스크랩 설정
+│   │   ├── scrape_config.yml            # Compose 서비스 triton:8002/metrics 설정
+│   │   ├── kubernetes_scrape_config.yml # Kubernetes Pod discovery·relabel 설정
 │   │   ├── triton_rules.yml             # 알림 규칙 (latency, error rate, GPU 사용률 등)
 │   │   └── triton_rules_test.yml        # promtool alert evaluation 테스트
 │   ├── grafana/
 │   │   └── triton_dashboard.json        # 사전 구성된 Grafana 대시보드
 │   └── otel/
-│       └── otel-collector-config.yaml   # 별도 배포용 OTel Collector 설정 예시
+│       ├── README.md                    # Collector 운영·보안·검증 가이드
+│       ├── otel-collector-config.yaml   # TLS backend를 요구하는 운영 설정
+│       └── otel-collector-config.dev.yaml # 로컬 Jaeger/debug 전용 설정
 │
 ├── tests/                               # 테스트 피라미드
 │   ├── config/                          # config.pbtxt 검증 (PR마다 실행)
 │   ├── smoke/                           # 서버 기동 + 모델 로드 + metrics 확인 (배포 직후)
 │   ├── integration/                     # E2E 파이프라인 테스트 (staging)
 │   ├── perf/                            # 성능 기준선 비교 (GPU runner에서 수동)
-│   │   └── run_perf_analyzer.sh         # perf_analyzer 래퍼 스크립트
+│   │   ├── run_perf_analyzer.sh         # perf_analyzer 래퍼 스크립트
+│   │   └── release_evidence.py          # release digest 성능 증거 생성·검증
 │   ├── conftest.py                      # 공통 pytest 픽스처
 │   └── README.md
 │
@@ -205,8 +210,8 @@ triton-infer-server-handbook/
 │       ├── ci-build-test.yml            # main push: candidate image build/push
 │       ├── ci-gpu-release.yml           # 수동 GPU smoke test → release tag 승격
 │       ├── cd-staging.yml               # staging 자동 배포 + integration test
-│       ├── cd-production.yml            # prod 수동 배포 + 자동 롤백
-│       └── perf-benchmark.yml           # 수동 GPU 성능 기준선 비교
+│       ├── cd-production.yml            # exact-digest preflight + prod 승인·배포·rollback
+│       └── perf-benchmark.yml           # release digest 직접 실행 + 성능 evidence
 │
 ├── .env.example                         # production Compose 환경변수 템플릿
 ├── .env.dev                             # 개발 Compose 기본값 (Git 추적 허용)
@@ -225,6 +230,8 @@ triton-infer-server-handbook/
 |------|------|
 | [Triton 서빙 아키텍처](docs/architecture.md) | 요청 처리 경로, 모델 레포지토리 전략, serving 패턴, 관측성 |
 | [Production 도입 가이드](docs/production-adoption.md) | production 도입 단계, release checklist, rollback 기준 |
+| [외부 모델 Artifact 파이프라인](docs/model-artifacts.md) | immutable URI, 크기·SHA-256 검증, CI receipt와 build 연결 |
+| [정확한 Release Digest 성능 Gate](docs/performance-gate.md) | release digest 직접 측정, evidence 계약, production preflight |
 | [Production Release Evidence](docs/release-evidence.md) | release identity, 역할, go/no-go 증거, 실패 시 복구 범위 |
 | [실무 시나리오](docs/scenarios.md) | 단일 모델, ensemble, GPU OOM, cache, LLM streaming, release 시나리오 |
 | [Production 장애 대응 Runbook](docs/runbook.md) | alert별 진단, 완화, digest 확인, rollback, 복구 판정 |
@@ -280,10 +287,10 @@ triton-infer-server-handbook/
 
 | 기능 | 설정 위치 | 설명 |
 |------|-----------|------|
-| **Prometheus Metrics** | `monitoring/prometheus/scrape_config.yml` | throughput, latency, 큐 대기, GPU 사용률 수집 |
+| **Prometheus Metrics** | `monitoring/prometheus/*scrape_config.yml` | Compose/Kubernetes별 target discovery, throughput, latency, 큐 대기, GPU 사용률 수집 |
 | **Alert Rules** | `monitoring/prometheus/triton_rules.yml` | 평균 latency > 200ms, error rate > 5%, GPU > 90% 등 알림 |
 | **Grafana Dashboard** | `monitoring/grafana/triton_dashboard.json` | 사전 구성된 시각화 대시보드 |
-| **OpenTelemetry Tracing** | `monitoring/otel/otel-collector-config.yaml` + `configs/tracing/otel.txt` | 별도 배포한 collector/backend에 요청 trace 전달 |
+| **OpenTelemetry Tracing** | `monitoring/otel/README.md` + `configs/tracing/otel.txt` | 운영 TLS export와 로컬 debug 설정을 분리해 요청 trace 전달 |
 | **Health Check** | `scripts/health_check.sh` / `/v2/health/live`, `/v2/health/ready` | 서버·모델 상태 확인 |
 | **Statistics API** | `client/stats_client.py` / `GET /v2/models/{name}/stats` | 모델별 추론 횟수·큐 대기·연산 시간 상세 조회 |
 
@@ -383,7 +390,9 @@ main merge → ci-build-test (candidate image build + GHCR push, GitHub-hosted)
     ↓
 성공 시 자동 → cd-staging (staging 배포 + integration test)
     ↓
-수동 승인 → cd-production (prod 배포 + 필수 모델/cache 계약 + 실패 시 자동 rollback)
+수동 → perf-benchmark (release digest 직접 실행 + 전체 모델 성능 evidence)
+    ↓
+preflight + 수동 승인 → cd-production (exact-digest gate + prod 배포 + 자동 rollback)
 ```
 
 GPU runner가 없는 환경에서는 candidate image까지만 생성되고 release tag, staging, production으로
@@ -394,9 +403,10 @@ Production 배포 입력은 `main`에 포함된 40자리 commit SHA입니다. wo
 registry digest로 해석하고, 해당 revision의 Kustomize manifest와 smoke test를 함께 실행합니다.
 배포된 Pod의 runtime digest, 필수 `text_classifier` 추론 결과, response-cache miss/hit까지
 확인해야 성공하며 하나라도 실패하면 Deployment 자동 rollback을 수행합니다.
-성능 baseline 비교는 `perf-benchmark.yml`의 수동 GPU workflow가 담당하며 production
-workflow 안에서 자동 실행되지는 않습니다. release 승인 전 같은 image SHA의 최신 결과를
-확인합니다.
+성능 baseline 비교는 `perf-benchmark.yml`의 수동 GPU workflow가 SHA release tag를 정확한
+registry digest로 해석한 뒤 그 digest를 직접 실행해 수행합니다. 전체 ready 모델 실행이
+통과해야 digest·baseline/profile·CSV hash를 묶은 evidence가 생성되며, production preflight가
+동일 digest의 성공 evidence를 자동 재검증한 뒤에만 Environment 승인 단계가 열립니다.
 
 ---
 
@@ -497,12 +507,13 @@ StatusCode.UNAVAILABLE: failed to connect to all addresses
 
 **체크리스트**:
 1. `configs/tracing/otel.txt`의 인수를 실제 Triton Deployment/Compose에 추가했는지 확인
-2. `monitoring/otel/otel-collector-config.yaml`을 별도 collector 배포에 적용했는지 확인
+2. `monitoring/otel/README.md`의 운영 환경 변수와 Collector 설정을 별도 배포에 적용했는지 확인
 3. Triton Pod에서 collector `:4318` endpoint로 연결되는지 확인
-4. collector의 `debug` exporter 로그와 trace backend 수신 상태 확인
+4. Collector exporter 오류와 trace backend 수신 상태 확인
 
 기본 Docker Compose와 Kubernetes overlay는 OTel Collector나 Jaeger를 자동 배포하지 않습니다.
-조직의 collector/backend가 준비된 환경에서 opt-in으로 연결합니다.
+조직의 collector/backend가 준비된 환경에서 opt-in으로 연결합니다. `debug` exporter는 민감하지
+않은 로컬 데이터에만 `otel-collector-config.dev.yaml`로 사용합니다.
 
 ---
 

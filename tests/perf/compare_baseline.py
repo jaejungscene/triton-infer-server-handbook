@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -22,6 +23,55 @@ def _find_column(fieldnames: list[str], aliases: set[str]) -> str:
     raise ValueError(f"missing CSV column; expected one of {sorted(aliases)}")
 
 
+def _finite_float(value, field: str, *, allow_zero: bool) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field} must be numeric") from error
+    if not math.isfinite(parsed) or parsed < 0 or (not allow_zero and parsed == 0):
+        qualifier = "non-negative" if allow_zero else "greater than zero"
+        raise ValueError(f"{field} must be finite and {qualifier}")
+    return parsed
+
+
+def _validated_targets(document: object) -> dict[str, dict]:
+    if not isinstance(document, dict) or not isinstance(document.get("models"), dict):
+        raise ValueError("baseline must contain a 'models' object")
+    model_targets = document["models"]
+    if not model_targets:
+        raise ValueError("baseline models must not be empty")
+
+    validated = {}
+    for model_name, target in model_targets.items():
+        if not isinstance(model_name, str) or not re.fullmatch(
+            r"[A-Za-z0-9._-]+", model_name
+        ):
+            raise ValueError(f"invalid baseline model name: {model_name!r}")
+        if not isinstance(target, dict):
+            raise ValueError(f"baseline target for {model_name} must be an object")
+        concurrency = target.get("concurrency")
+        if (
+            not isinstance(concurrency, int)
+            or isinstance(concurrency, bool)
+            or concurrency <= 0
+        ):
+            raise ValueError(f"{model_name}.concurrency must be a positive integer")
+        validated[model_name] = {
+            "concurrency": concurrency,
+            "min_throughput": _finite_float(
+                target.get("min_throughput"),
+                f"{model_name}.min_throughput",
+                allow_zero=False,
+            ),
+            "max_p95_latency_ms": _finite_float(
+                target.get("max_p95_latency_ms"),
+                f"{model_name}.max_p95_latency_ms",
+                allow_zero=False,
+            ),
+        }
+    return validated
+
+
 def _read_measurement(csv_path: Path, concurrency: int) -> tuple[float, float]:
     with csv_path.open(newline="", encoding="utf-8") as csv_file:
         reader = csv.DictReader(csv_file)
@@ -36,25 +86,49 @@ def _read_measurement(csv_path: Path, concurrency: int) -> tuple[float, float]:
             {"p95latency", "p95latencyus", "p95latencyusec"},
         )
 
-        for row in reader:
-            if int(float(row[concurrency_column])) != concurrency:
+        matches = []
+        for row_number, row in enumerate(reader, start=2):
+            measured_concurrency = _finite_float(
+                row.get(concurrency_column),
+                f"row {row_number} concurrency",
+                allow_zero=False,
+            )
+            if not measured_concurrency.is_integer():
+                raise ValueError(f"row {row_number} concurrency must be an integer")
+            if int(measured_concurrency) != concurrency:
                 continue
-            throughput = float(row[throughput_column])
-            p95_latency_ms = float(row[p95_column]) / 1000.0
-            return throughput, p95_latency_ms
+            throughput = _finite_float(
+                row.get(throughput_column),
+                f"row {row_number} throughput",
+                allow_zero=True,
+            )
+            p95_latency_us = _finite_float(
+                row.get(p95_column),
+                f"row {row_number} p95 latency",
+                allow_zero=True,
+            )
+            matches.append((throughput, p95_latency_us / 1000.0))
 
-    raise ValueError(f"no measurement for concurrency={concurrency}")
+    if not matches:
+        raise ValueError(f"no measurement for concurrency={concurrency}")
+    if len(matches) > 1:
+        raise ValueError(f"duplicate measurements for concurrency={concurrency}")
+    return matches[0]
+
+
+def _reject_json_constant(value: str):
+    raise ValueError(f"baseline contains non-finite JSON value: {value}")
 
 
 def compare(baseline_path: Path, results_dir: Path, selected_model: str | None) -> int:
-    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
-    model_targets = baseline.get("models", baseline)
-    if not isinstance(model_targets, dict):
-        raise ValueError("baseline must contain a 'models' object")
+    baseline = json.loads(
+        baseline_path.read_text(encoding="utf-8"),
+        parse_constant=_reject_json_constant,
+    )
+    model_targets = _validated_targets(baseline)
 
     if selected_model and selected_model not in model_targets:
-        print(f"ERROR: no baseline is defined for {selected_model}", file=sys.stderr)
-        return 2
+        raise ValueError(f"no baseline is defined for {selected_model}")
 
     failures: list[str] = []
     result_models = {
@@ -62,33 +136,29 @@ def compare(baseline_path: Path, results_dir: Path, selected_model: str | None) 
         for path in results_dir.glob("*_perf.csv")
     }
     unknown_models = sorted(result_models - set(model_targets))
-    failures.extend(
-        f"{model_name}: benchmark result has no configured baseline"
-        for model_name in unknown_models
-    )
+    if unknown_models:
+        raise ValueError(
+            f"benchmark results have no configured baseline: {', '.join(unknown_models)}"
+        )
 
     evaluated = 0
     for model_name, targets in model_targets.items():
-        if model_name.startswith("_") or (selected_model and model_name != selected_model):
+        if selected_model and model_name != selected_model:
             continue
 
         csv_path = results_dir / f"{model_name}_perf.csv"
         if not csv_path.exists():
             if selected_model:
-                failures.append(f"{model_name}: result CSV is missing")
+                raise ValueError(f"{model_name}: result CSV is missing")
             else:
                 print(f"SKIP {model_name}: model was not benchmarked")
             continue
 
         evaluated += 1
-        try:
-            concurrency = int(targets["concurrency"])
-            min_throughput = float(targets["min_throughput"])
-            max_p95_latency_ms = float(targets["max_p95_latency_ms"])
-            throughput, p95_latency_ms = _read_measurement(csv_path, concurrency)
-        except (KeyError, TypeError, ValueError) as exc:
-            failures.append(f"{model_name}: invalid result or baseline ({exc})")
-            continue
+        concurrency = targets["concurrency"]
+        min_throughput = targets["min_throughput"]
+        max_p95_latency_ms = targets["max_p95_latency_ms"]
+        throughput, p95_latency_ms = _read_measurement(csv_path, concurrency)
 
         print(
             f"CHECK {model_name}: throughput={throughput:.2f} infer/sec "
@@ -105,7 +175,7 @@ def compare(baseline_path: Path, results_dir: Path, selected_model: str | None) 
             )
 
     if evaluated == 0:
-        failures.append("no benchmark result matched a configured baseline")
+        raise ValueError("no benchmark result matched a configured baseline")
 
     if failures:
         print("\nPERFORMANCE REGRESSION", file=sys.stderr)

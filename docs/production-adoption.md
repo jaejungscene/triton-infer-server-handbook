@@ -67,13 +67,17 @@ sequenceDiagram
     participant Prod as Production Triton
     Dev->>CI: PR with config/model changes
     CI->>CI: validate.sh, pytest config, lint
+    CI->>CI: fetch + size/hash verify + receipt
     CI->>CI: build model_repository + candidate image
     Dev->>GPU: manually dispatch main revision
     GPU->>GPU: smoke test candidate digest + promote SHA tag
     GPU->>Stg: trigger verified immutable release
     Stg->>Stg: integration contract test
-    CI->>Perf: manually benchmark verified revision
-    Dev->>Prod: approve release
+    Dev->>Perf: dispatch release SHA with full scope
+    Perf->>Perf: pull exact digest + baseline + evidence
+    Dev->>Prod: dispatch the same release SHA
+    Prod->>Prod: verify trusted exact-digest evidence
+    Dev->>Prod: approve production Environment
     Prod->>Prod: rolling deploy / explicit load
     Prod->>Prod: monitor alerts and stats
 ```
@@ -91,6 +95,13 @@ model load, metrics, cache 설정 중 하나라도 release 후보와 다르면 �
 않습니다.
 main image build 단계는 GitHub-hosted runner에서 `candidate-<40자리 commit SHA>` tag까지만
 push합니다. 이 성공은 build artifact가 있다는 뜻이지 runtime 검증이나 배포 승인이 아닙니다.
+외부 모델이 선택되면 이 단계는 먼저 manifest의 immutable URI, 크기, SHA-256을 검증하고
+검증 cache만 `model_repository`에 overlay합니다. 허용할 정확한 HTTPS host는 repository
+Variable `ARTIFACT_ALLOWED_HOSTS`, private 저장소의 read-only Bearer token은 Secret
+`MODEL_ARTIFACT_TOKEN`으로 전달합니다. token과 URI query를 제거한 receipt는
+`model-artifact-receipt-<commit SHA>`라는 CI artifact로 90일 보존하며 release evidence에
+연결합니다. 상세 위협 경계와 로컬 검증법은 [외부 모델 Artifact 파이프라인](model-artifacts.md)을
+따릅니다.
 NVIDIA GPU runner가 준비된 시점에 `CI - GPU Release`를 main에서 수동 실행하면 candidate
 registry digest를 직접 smoke test하고, 성공한 동일 digest에만 `<40자리 commit SHA>` release
 tag를 붙입니다. `main`이나 `latest` tag는 만들지 않습니다. GPU runner가 없거나 검증이
@@ -104,10 +115,12 @@ revision 추정에 의존하지 않고 기록한 image를 다시 설정한 뒤 �
 image만 되돌리므로 ConfigMap, Secret, API contract를 함께 바꾸는 release는 이전 manifest를
 별도 GitOps revision으로 복원하는 절차가 필요합니다.
 
-성능 비교는 production deploy job 안에서 실행되지 않습니다. self-hosted GPU runner의
-`perf-benchmark.yml`을 수동으로 실행하고, 승인자는 배포할 image SHA와 같은 revision의
-결과 artifact를 확인합니다. 성능 회귀를 강제 gate로 쓸 조직은 이 결과를 production
-Environment 승인 조건에 연결합니다.
+성능 측정 자체는 production deploy job 안에서 실행하지 않습니다. self-hosted GPU runner의
+`perf-benchmark.yml`에 release SHA를 입력하면 workflow가 SHA tag의 정확한 registry digest를
+pull/run합니다. `model`을 비운 전체 실행만 `perf-gate-<SHA>-<digest>` evidence를 만들며,
+production preflight는 현재 tag가 가리키는 digest와 artifact producer·baseline/profile·CSV
+hash를 모두 재검증합니다. 이 단계가 통과해야 production Environment 승인 요청이 생성됩니다.
+세부 계약은 [정확한 Release Digest 성능 Gate](performance-gate.md)를 따릅니다.
 
 기본 pipeline은 model repository를 serving image에 포함하므로 image SHA 하나가 runtime과 모델
 세트를 함께 식별합니다. 대형 모델을 object storage/PVC로 분리하면 model revision과 checksum을
@@ -123,9 +136,11 @@ release metadata에 추가하고, staging에서 검증한 바로 그 revision만
 - `model_warmup` 입력 shape와 실제 입력 shape 일치 확인
 - `response_cache`를 켠 모델은 deterministic output인지 확인
 - `instance_group` count와 GPU memory 사용량 확인
-- `scripts/build.sh --env staging --clean` 결과물 확인
+- external 모델은 manifest의 URI·크기·SHA-256과 candidate CI receipt 확인
+- `scripts/fetch_artifacts.py --env staging` 후
+  `scripts/build.sh --env staging --artifact-root .artifacts --clean` 결과물 확인
 - staging에서 Repository Index API, `/ready`, `/stats`, `/metrics` 확인
-- perf baseline 대비 latency/throughput 악화 여부 확인
+- 배포 SHA의 exact-digest 전체 perf gate artifact와 GPU inventory 확인
 
 로컬에서 staging 전용 구성을 확인할 때는 `--env staging`을 사용할 수 있지만, main release
 CI는 `--env prod`로 최종 모델 세트를 image에 포함합니다. staging CD는 별도 staging image를
@@ -203,7 +218,8 @@ Compose config 검증 결과를 함께 남깁니다.
 검증합니다.
 
 ```bash
-./scripts/build.sh --env prod --clean
+python scripts/fetch_artifacts.py --env prod --output-dir .artifacts
+./scripts/build.sh --env prod --artifact-root .artifacts --clean
 docker build -f deploy/docker/Dockerfile \
   --build-arg VCS_REF="$(git rev-parse HEAD)" \
   -t "triton-server:$(git rev-parse HEAD)" .

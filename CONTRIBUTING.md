@@ -6,7 +6,8 @@
 2. `models/serving/{domain}/` 아래에 배치합니다.
 3. `models/serving/manifest.yaml`에 source→target 매핑을 추가합니다.
 4. `config.pbtxt`를 수정합니다 (input/output shape, backend).
-5. PR을 생성합니다. CI가 자동으로 config 검증을 수행합니다.
+5. 외부 모델이면 URI, 크기, SHA-256을 `artifacts`에 기록하고 로컬 fetch/build를 검증합니다.
+6. PR을 생성합니다. CI가 자동으로 config와 artifact 계약을 검증합니다.
 
 ## 브랜치 전략
 
@@ -18,7 +19,7 @@
 
 - `models/` 하위 변경 시 ML팀 리뷰 필수 (CODEOWNERS)
 - config.pbtxt 변경 시 `scripts/validate.sh` 로컬 실행 권장
-- 성능에 영향을 줄 수 있는 변경은 perf test 결과 첨부
+- 성능에 영향을 줄 수 있는 변경은 SHA release tag의 정확한 digest에서 실행한 전체 perf gate 첨부
 
 ## 로컬 검증
 
@@ -27,6 +28,8 @@ Prometheus rule, shell 문법을 검사합니다. 제출 전 최소 검증은 �
 
 ```bash
 ./scripts/validate.sh
+python scripts/fetch_artifacts.py --env prod --output-dir .artifacts
+./scripts/build.sh --env prod --artifact-root .artifacts --clean
 pytest tests/
 ruff check models/ client/ tests/ scripts/ --select E,W,F --ignore E501
 helm lint deploy/helm/triton \
@@ -65,7 +68,8 @@ production Compose의 Redis, Prometheus, Grafana와 CI의 Prometheus 도구 imag
 main CI는 `candidate-<commit SHA>` image만 게시합니다. candidate는 GPU 검증 전 artifact이므로
 staging이나 production에 사용하지 않습니다. NVIDIA GPU runner가 준비된 시점에 main에서
 `CI - GPU Release`를 수동 실행하고, runtime contract를 통과해 `<commit SHA>` release tag가
-생성된 뒤에만 staging과 production 절차를 진행합니다.
+생성된 뒤 `Performance Benchmark`에 같은 SHA를 입력합니다. `model`을 비운 전체 실행의
+exact-digest evidence가 있어야 production preflight와 승인 절차를 진행할 수 있습니다.
 
 ## 커밋 메시지
 

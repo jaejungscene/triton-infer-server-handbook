@@ -42,6 +42,11 @@ model_transaction_policy {
   decoupled: true
 }
 
+parameters {
+  key: "max_output_tokens"
+  value: { string_value: "4096" }
+}
+
 instance_group [
   {
     count: 1

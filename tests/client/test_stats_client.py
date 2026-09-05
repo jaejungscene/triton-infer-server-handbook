@@ -1,3 +1,4 @@
+import io
 import json
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ from client import stats_client  # noqa: E402
 
 class _FakeResponse:
     def __init__(self, payload):
-        self.payload = payload
+        self._body = io.BytesIO(json.dumps(payload).encode("utf-8"))
 
     def __enter__(self):
         return self
@@ -19,8 +20,8 @@ class _FakeResponse:
     def __exit__(self, exc_type, exc, traceback):
         return False
 
-    def read(self):
-        return json.dumps(self.payload).encode("utf-8")
+    def read(self, size=-1):
+        return self._body.read(size)
 
 
 def test_model_stats_encodes_path_and_applies_timeout_and_headers(monkeypatch):
@@ -50,13 +51,44 @@ def test_model_stats_encodes_path_and_applies_timeout_and_headers(monkeypatch):
     }
 
 
-def test_stats_rejects_invalid_url_timeout_and_empty_model():
-    with pytest.raises(ValueError, match="absolute HTTP"):
-        stats_client.get_all_model_stats("localhost:8000")
+@pytest.mark.parametrize(
+    "url",
+    [
+        "localhost:8000",
+        "https://user:secret@triton.example.com",
+        "https://triton.example.com/prefix",
+        "https://triton.example.com?tenant=a",
+        " https://triton.example.com",
+    ],
+)
+def test_stats_rejects_non_origin_urls(url):
+    with pytest.raises(ValueError, match=r"HTTP\(S\) origin"):
+        stats_client.get_all_model_stats(url)
+
+
+def test_stats_rejects_invalid_timeout_header_and_empty_model():
+    with pytest.raises(ValueError, match="finite"):
+        stats_client.get_all_model_stats("http://localhost:8000", timeout=float("nan"))
     with pytest.raises(ValueError, match="timeout"):
         stats_client.get_all_model_stats("http://localhost:8000", timeout=0)
+    with pytest.raises(ValueError, match="headers"):
+        stats_client.get_all_model_stats(
+            "http://localhost:8000", headers={"Authorization": "token\nforged"}
+        )
     with pytest.raises(ValueError, match="model_name"):
         stats_client.get_model_stats("http://localhost:8000", "")
+
+
+def test_stats_rejects_oversized_response(monkeypatch):
+    monkeypatch.setattr(stats_client, "MAX_RESPONSE_BYTES", 16)
+    monkeypatch.setattr(
+        stats_client.urllib.request,
+        "urlopen",
+        lambda request, timeout: _FakeResponse({"model_stats": ["too large"]}),
+    )
+
+    with pytest.raises(RuntimeError, match="exceeds 16 bytes"):
+        stats_client.get_all_model_stats("http://localhost:8000")
 
 
 def test_summary_accepts_protobuf_json_integer_strings(capsys):

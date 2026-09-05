@@ -19,6 +19,8 @@ htmlcov
 
 # Runtime/build artifacts (model_repository는 serving image에 포함)
 tests/perf/results
+.artifacts
+.release-evidence
 *.log
 trace_output
 *.trace.json

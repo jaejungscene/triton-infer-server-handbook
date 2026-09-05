@@ -113,10 +113,12 @@ Shared-memory client는 요청마다 충돌하지 않는 region 이름을 만들
 handle을 추적하므로 데이터 기록이나 등록이 실패해도 local region을 정리합니다. 닫힌 client는
 재사용하지 않습니다.
 
-Statistics API CLI는 10초 timeout을 기본 적용하고 HTTPS 인증서 검증을 유지합니다. 인증이
-필요하면 token을 명령행 인수로 노출하지 말고 환경변수로 전달합니다. `inference_count`는 요청
-수가 아니라 batch 원소를 포함한 inference 수이므로 `execution_count`로 나눈 값이 평균 동적
-batch 크기입니다.
+Statistics API CLI는 10초 timeout을 기본 적용하고 HTTPS 인증서 검증을 유지합니다. URL에는
+credential, path, query가 없는 HTTP(S) origin만 허용하며 인증이 필요하면 token을 명령행
+인수로 노출하지 말고 환경변수로 전달합니다. 응답은 64 KiB 단위로 읽고 8 MiB를 넘으면
+중단하므로, 모델 수가 매우 많은 환경은 API gateway에서 대상을 나누거나 모델별 endpoint를
+사용합니다. `inference_count`는 요청 수가 아니라 batch 원소를 포함한 inference 수이므로
+`execution_count`로 나눈 값이 평균 동적 batch 크기입니다.
 
 ```bash
 export TRITON_AUTH_TOKEN='<load from secret manager>'
