@@ -880,7 +880,7 @@ class TestReleaseWorkflow:
 
             assert "docker buildx imagetools inspect" in workflow
             assert "^sha256:[0-9a-f]{64}$" in workflow
-            assert 'IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}' in workflow
+            assert "${REGISTRY}/${IMAGE_NAME}@${DIGEST}" in workflow
             assert 'kustomize edit set image "triton-server=${IMAGE_REF}"' in workflow
 
     def test_production_verifies_the_runtime_image_digest(self, project_root):
@@ -905,11 +905,51 @@ class TestReleaseWorkflow:
         with open(workflow_path) as workflow_file:
             workflow = workflow_file.read()
 
-        assert "./scripts/build.sh --env prod --clean" in workflow
-        assert "--file deploy/docker/Dockerfile" in workflow
-        assert "--tag triton-server:perf" in workflow
+        assert "release_sha:" in workflow
+        assert "docker buildx imagetools inspect" in workflow
+        assert 'docker pull "${RELEASE_IMAGE}"' in workflow
+        assert '"${RELEASE_IMAGE}" \\' in workflow
+        assert "docker build " not in workflow
+        assert "release_evidence.py create" in workflow
+        assert "perf-gate-${{ inputs.release_sha }}-${{ steps.release.outputs.digest_hex }}" in workflow
+        assert "if: ${{ inputs.model == '' }}" in workflow
         assert "--cache-config=local,size=67108864" in workflow
+        assert "--http-thread-count=8" in workflow
+        assert "--grpc-infer-thread-count=8" in workflow
+        assert "--rate-limit=execution_count" in workflow
         assert "-v $(pwd)/model_repository:/models:ro" not in workflow
+
+    def test_production_requires_exact_digest_performance_evidence(
+        self, project_root
+    ):
+        workflow_path = os.path.join(
+            project_root, ".github", "workflows", "cd-production.yml"
+        )
+        with open(workflow_path) as workflow_file:
+            workflow = workflow_file.read()
+
+        assert "actions: read" in workflow
+        assert '"${GITHUB_REF}" != "refs/heads/main"' in workflow
+        assert "perf-gate-${IMAGE_TAG}-${IMAGE_DIGEST#sha256:}" in workflow
+        assert '.conclusion == "success"' in workflow
+        assert '.path == ".github/workflows/perf-benchmark.yml"' in workflow
+        assert "uses: actions/download-artifact@" in workflow
+        assert "artifact-ids: ${{ steps.performance.outputs.artifact_id }}" in workflow
+        assert "release_evidence.py verify" in workflow
+        assert '--image-digest "${IMAGE_DIGEST}"' in workflow
+        assert '--workflow-run-id "${PERFORMANCE_RUN_ID}"' in workflow
+        assert '--workflow-run-attempt "${PERFORMANCE_RUN_ATTEMPT}"' in workflow
+        assert '--workflow-revision "${PERFORMANCE_WORKFLOW_REVISION}"' in workflow
+        assert "needs: release-preflight" in workflow
+        assert "needs.release-preflight.result == 'success'" in workflow
+        assert '"${ROLLBACK}" != "true"' in workflow
+        assert workflow.count("if: ${{ github.event.inputs.rollback != 'true' }}") >= 10
+        assert workflow.index("- name: Verify exact release performance evidence") < workflow.index(
+            "  deploy-production:"
+        )
+        assert workflow.index("  deploy-production:") < workflow.index(
+            "- name: Deploy new version"
+        )
 
     def test_deploy_workflows_verify_kube_context(self, project_root):
         workflow_expectations = {

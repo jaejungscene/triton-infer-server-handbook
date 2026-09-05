@@ -3,12 +3,14 @@
 # =============================================================================
 # Trigger: GPU runner가 준비된 시점에 수동
 # Runner: self-hosted GPU runner
+# Gate: release tag가 가리키는 정확한 digest의 전체 ready 모델 실행만 증거 생성
 # =============================================================================
 
 name: Performance Benchmark
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: performance-benchmark
@@ -17,10 +19,15 @@ concurrency:
 on:
   workflow_dispatch:
     inputs:
+      release_sha:
+        description: 'GPU 검증을 마친 main-branch 40-character release SHA'
+        required: true
+        type: string
       model:
-        description: 'Specific model to benchmark (empty = all)'
+        description: '진단할 단일 모델 (비우면 production gate용 전체 실행)'
         required: false
         default: ''
+        type: string
 
 jobs:
   benchmark:
@@ -28,8 +35,35 @@ jobs:
     runs-on: [self-hosted, gpu]
     timeout-minutes: 60
     steps:
-      - name: Checkout
+      - name: Validate release input
+        run: |
+          if [[ ! "${RELEASE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "release_sha must be the full lowercase 40-character Git SHA" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Performance gate must be dispatched from the main branch" >&2
+            exit 1
+          fi
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+
+      - name: Checkout release revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 0
+
+      - name: Verify release revision belongs to main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${RELEASE_SHA}" origin/main; then
+            echo "release_sha must reference a commit reachable from origin/main" >&2
+            exit 1
+          fi
+          test "$(git rev-parse HEAD)" = "${RELEASE_SHA}"
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
 
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -39,16 +73,47 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-integration.txt
 
-      - name: Build model repository
-        run: ./scripts/build.sh --env prod --clean
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build release-equivalent image
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve immutable release digest
+        id: release
         run: |
-          docker build \
-            --file deploy/docker/Dockerfile \
-            --build-arg "VCS_REF=${GITHUB_SHA}" \
-            --tag triton-server:perf \
-            .
+          DIGEST="$(docker buildx imagetools inspect "${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Could not resolve an immutable digest for ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "digest_hex=${DIGEST#sha256:}" >> "${GITHUB_OUTPUT}"
+          echo "image=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "${GITHUB_OUTPUT}"
+        env:
+          REGISTRY: ghcr.io
+          IMAGE_NAME: ${{ github.repository }}
+          RELEASE_TAG: ghcr.io/${{ github.repository }}:${{ inputs.release_sha }}
+
+      - name: Pull exact release image
+        run: docker pull "${RELEASE_IMAGE}"
+        env:
+          RELEASE_IMAGE: ${{ steps.release.outputs.image }}
+
+      - name: Record GPU inventory
+        run: |
+          mkdir -p tests/perf/results
+          rm -f \
+            tests/perf/results/gpu-inventory.txt \
+            tests/perf/results/release-performance-evidence.json
+          nvidia-smi \
+            --query-gpu=name,driver_version \
+            --format=csv,noheader > tests/perf/results/gpu-inventory.txt
+          test -s tests/perf/results/gpu-inventory.txt
 
       - name: Start Triton server
         run: |
@@ -57,13 +122,20 @@ jobs:
             --name triton-perf \
             --gpus all \
             -p 8000:8000 -p 8001:8001 -p 8002:8002 \
-            triton-server:perf \
+            "${RELEASE_IMAGE}" \
               --model-repository=/models \
               --model-control-mode=explicit \
               --load-model=* \
               --strict-model-config=true \
+              --allow-metrics=true \
+              --allow-gpu-metrics=true \
+              --http-thread-count=8 \
+              --grpc-infer-thread-count=8 \
               --cache-config=local,size=67108864 \
+              --rate-limit=execution_count \
               --log-verbose=0
+        env:
+          RELEASE_IMAGE: ${{ steps.release.outputs.image }}
 
       - name: Wait for server ready
         uses: ./.github/actions/triton-health-check
@@ -87,11 +159,58 @@ jobs:
         env:
           BENCHMARK_MODEL: ${{ github.event.inputs.model }}
 
-      - name: Upload results
-        if: always()
+      - name: Create exact release performance evidence
+        if: ${{ inputs.model == '' }}
+        run: |
+          python tests/perf/release_evidence.py create \
+            --source-revision "${RELEASE_SHA}" \
+            --image-ref "${RELEASE_IMAGE}" \
+            --image-digest "${RELEASE_DIGEST}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow-run-id "${GITHUB_RUN_ID}" \
+            --workflow-run-attempt "${GITHUB_RUN_ATTEMPT}" \
+            --workflow-revision "${GITHUB_SHA}" \
+            --runner-name "${RUNNER_NAME}" \
+            --gpu-inventory-file tests/perf/results/gpu-inventory.txt \
+            --baseline tests/perf/baseline.json \
+            --profiles tests/perf/profiles.json \
+            --results-dir tests/perf/results \
+            --output tests/perf/results/release-performance-evidence.json
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_IMAGE: ${{ steps.release.outputs.image }}
+          RELEASE_DIGEST: ${{ steps.release.outputs.digest }}
+          RUNNER_NAME: ${{ runner.name }}
+
+      - name: Upload production performance gate evidence
+        if: ${{ inputs.model == '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: perf-results-${{ github.sha }}
+          name: perf-gate-${{ inputs.release_sha }}-${{ steps.release.outputs.digest_hex }}
+          path: |
+            tests/perf/results/release-performance-evidence.json
+            tests/perf/results/*_perf.csv
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record performance evidence identity
+        if: ${{ inputs.model == '' }}
+        run: |
+          {
+            echo "### Production performance gate passed"
+            echo "- Source: \`${RELEASE_SHA}\`"
+            echo "- Image: \`${RELEASE_IMAGE}\`"
+            echo "- Scope: all ready models"
+          } >> "${GITHUB_STEP_SUMMARY}"
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_IMAGE: ${{ steps.release.outputs.image }}
+
+      - name: Upload results
+        if: ${{ always() && steps.release.outputs.digest_hex != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: perf-results-${{ inputs.release_sha }}-${{ steps.release.outputs.digest_hex }}
           path: tests/perf/results/
           if-no-files-found: warn
           retention-days: 90
@@ -101,4 +220,6 @@ jobs:
         run: |
           docker stop triton-perf 2>/dev/null || true
           docker rm triton-perf 2>/dev/null || true
-          docker image rm triton-server:perf 2>/dev/null || true
+          docker image rm "${RELEASE_IMAGE}" 2>/dev/null || true
+        env:
+          RELEASE_IMAGE: ${{ steps.release.outputs.image }}

@@ -8,6 +8,7 @@
 model_repository/*
 !model_repository/.gitkeep
 .artifacts/
+.release-evidence/
 
 # ---------------------------------------------------------------------------
 # Model Binaries (Git에 추적하지 않는 모델 파일)

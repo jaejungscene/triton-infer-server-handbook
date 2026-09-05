@@ -23,6 +23,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 permissions:
+  actions: read
   contents: read
   packages: read
 
@@ -31,24 +32,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy-production:
-    name: Deploy to Production
+  release-preflight:
+    name: Verify Release and Performance Evidence
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: production  # ★ 수동 승인 필수 (GitHub Settings → Environments)
-    env:
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      KUBE_CONTEXT_PROD: ${{ vars.KUBE_CONTEXT_PROD }}
+    timeout-minutes: 15
+    outputs:
+      image_ref: ${{ steps.release.outputs.image_ref }}
+      image_digest: ${{ steps.release.outputs.image_digest }}
+      performance_run_id: ${{ steps.performance.outputs.run_id }}
     steps:
       - name: Validate image tag
-        if: ${{ github.event.inputs.rollback != 'true' }}
         run: |
-          if [[ ! "${IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Production deployment must be dispatched from the main branch" >&2
+            exit 1
+          fi
+          if [[ "${ROLLBACK}" != "true" && ! "${IMAGE_TAG}" =~ ^[0-9a-f]{40}$ ]]; then
             echo "image_tag must be the full 40-character Git commit SHA" >&2
             exit 1
           fi
         env:
           IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+          ROLLBACK: ${{ github.event.inputs.rollback }}
 
       - name: Checkout release revision
         if: ${{ github.event.inputs.rollback != 'true' }}
@@ -56,10 +61,6 @@ jobs:
         with:
           ref: ${{ github.event.inputs.image_tag }}
           fetch-depth: 0
-
-      - name: Checkout current main for rollback
-        if: ${{ github.event.inputs.rollback == 'true' }}
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Verify release revision belongs to main
         if: ${{ github.event.inputs.rollback != 'true' }}
@@ -71,14 +72,6 @@ jobs:
           test "$(git rev-parse HEAD)" = "${IMAGE_TAG}"
         env:
           IMAGE_TAG: ${{ github.event.inputs.image_tag }}
-
-      - name: Setup Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.11"
-
-      - name: Setup kustomize
-        uses: imranismail/setup-kustomize@2ba527d4d055ab63514ba50a99456fc35684947f # v2
 
       - name: Setup Docker Buildx
         if: ${{ github.event.inputs.rollback != 'true' }}
@@ -93,6 +86,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve immutable image digest
+        id: release
         if: ${{ github.event.inputs.rollback != 'true' }}
         run: |
           DIGEST="$(docker buildx imagetools inspect "${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
@@ -100,10 +94,152 @@ jobs:
             echo "Could not resolve an immutable digest for ${RELEASE_TAG}" >&2
             exit 1
           fi
-          echo "IMAGE_REF=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "${GITHUB_ENV}"
-          echo "IMAGE_DIGEST=${DIGEST}" >> "${GITHUB_ENV}"
+          echo "image_ref=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "image_digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
         env:
           RELEASE_TAG: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag }}
+
+      - name: Find successful exact-digest performance evidence
+        id: performance
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        run: |
+          ARTIFACT_NAME="perf-gate-${IMAGE_TAG}-${IMAGE_DIGEST#sha256:}"
+          CANDIDATES="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+            -f "name=${ARTIFACT_NAME}" \
+            -f "per_page=100" \
+            --jq '.artifacts | map(select(.expired == false)) | sort_by(.created_at) | reverse | .[] | [.id, .workflow_run.id] | @tsv')"
+          if [[ -z "${CANDIDATES}" ]]; then
+            echo "No unexpired performance evidence found for ${IMAGE_DIGEST}" >&2
+            exit 1
+          fi
+
+          SELECTED_ARTIFACT_ID=""
+          SELECTED_RUN_ID=""
+          SELECTED_RUN_ATTEMPT=""
+          SELECTED_WORKFLOW_REVISION=""
+          while IFS=$'\t' read -r artifact_id run_id; do
+            [[ "${artifact_id}" =~ ^[0-9]+$ && "${run_id}" =~ ^[0-9]+$ ]] || continue
+            RUN="$(gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}")"
+            if jq -e \
+              --arg repository "${GITHUB_REPOSITORY}" \
+              '.status == "completed" and
+               .conclusion == "success" and
+               .event == "workflow_dispatch" and
+               .path == ".github/workflows/perf-benchmark.yml" and
+               .head_branch == "main" and
+               .head_repository.full_name == $repository' \
+              <<< "${RUN}" > /dev/null; then
+              run_attempt="$(jq -r '.run_attempt' <<< "${RUN}")"
+              workflow_revision="$(jq -r '.head_sha' <<< "${RUN}")"
+              [[ "${run_attempt}" =~ ^[1-9][0-9]*$ ]] || continue
+              [[ "${workflow_revision}" =~ ^[0-9a-f]{40}$ ]] || continue
+              SELECTED_ARTIFACT_ID="${artifact_id}"
+              SELECTED_RUN_ID="${run_id}"
+              SELECTED_RUN_ATTEMPT="${run_attempt}"
+              SELECTED_WORKFLOW_REVISION="${workflow_revision}"
+              break
+            fi
+          done <<< "${CANDIDATES}"
+
+          if [[ -z "${SELECTED_RUN_ID}" ]]; then
+            echo "No successful trusted performance workflow produced ${ARTIFACT_NAME}" >&2
+            exit 1
+          fi
+          echo "artifact_id=${SELECTED_ARTIFACT_ID}" >> "${GITHUB_OUTPUT}"
+          echo "artifact_name=${ARTIFACT_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "run_id=${SELECTED_RUN_ID}" >> "${GITHUB_OUTPUT}"
+          echo "run_attempt=${SELECTED_RUN_ATTEMPT}" >> "${GITHUB_OUTPUT}"
+          echo "workflow_revision=${SELECTED_WORKFLOW_REVISION}" >> "${GITHUB_OUTPUT}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+          IMAGE_DIGEST: ${{ steps.release.outputs.image_digest }}
+
+      - name: Download exact performance evidence
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ steps.performance.outputs.artifact_id }}
+          path: .release-evidence/performance
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.performance.outputs.run_id }}
+
+      - name: Setup Python
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify exact release performance evidence
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        run: |
+          python tests/perf/release_evidence.py verify \
+            --evidence .release-evidence/performance/release-performance-evidence.json \
+            --source-revision "${IMAGE_TAG}" \
+            --image-ref "${IMAGE_REF}" \
+            --image-digest "${IMAGE_DIGEST}" \
+            --repository "${GITHUB_REPOSITORY}" \
+            --workflow-run-id "${PERFORMANCE_RUN_ID}" \
+            --workflow-run-attempt "${PERFORMANCE_RUN_ATTEMPT}" \
+            --workflow-revision "${PERFORMANCE_WORKFLOW_REVISION}" \
+            --baseline tests/perf/baseline.json \
+            --profiles tests/perf/profiles.json \
+            --results-dir .release-evidence/performance
+        env:
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+          IMAGE_REF: ${{ steps.release.outputs.image_ref }}
+          IMAGE_DIGEST: ${{ steps.release.outputs.image_digest }}
+          PERFORMANCE_RUN_ID: ${{ steps.performance.outputs.run_id }}
+          PERFORMANCE_RUN_ATTEMPT: ${{ steps.performance.outputs.run_attempt }}
+          PERFORMANCE_WORKFLOW_REVISION: ${{ steps.performance.outputs.workflow_revision }}
+
+      - name: Record verified release gate
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        run: |
+          {
+            echo "### Production preflight passed"
+            echo "- Source: \`${IMAGE_TAG}\`"
+            echo "- Image: \`${IMAGE_REF}\`"
+            echo "- Performance workflow run: \`${PERFORMANCE_RUN_ID}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+        env:
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+          IMAGE_REF: ${{ steps.release.outputs.image_ref }}
+          PERFORMANCE_RUN_ID: ${{ steps.performance.outputs.run_id }}
+
+  deploy-production:
+    name: Deploy to Production
+    needs: release-preflight
+    if: ${{ needs.release-preflight.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production  # ★ 수동 승인 필수 (GitHub Settings → Environments)
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      KUBE_CONTEXT_PROD: ${{ vars.KUBE_CONTEXT_PROD }}
+      IMAGE_REF: ${{ needs.release-preflight.outputs.image_ref }}
+      IMAGE_DIGEST: ${{ needs.release-preflight.outputs.image_digest }}
+    steps:
+      - name: Checkout release revision
+        if: ${{ github.event.inputs.rollback != 'true' }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.inputs.image_tag }}
+          fetch-depth: 0
+
+      - name: Checkout current main for rollback
+        if: ${{ github.event.inputs.rollback == 'true' }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup kustomize
+        uses: imranismail/setup-kustomize@2ba527d4d055ab63514ba50a99456fc35684947f # v2
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
@@ -194,12 +330,6 @@ jobs:
 
           cat /tmp/triton-port-forward.log
           exit 1
-
-      - name: Performance baseline check
-        run: |
-          echo "Production service is ClusterIP. Use kubectl port-forward or the configured Ingress for manual perf checks."
-          echo "Example: kubectl port-forward -n production svc/triton-server 8000:8000"
-          echo "Then run: ./tests/perf/run_perf_analyzer.sh --url localhost:8000"
 
       # ── 자동 롤백 (smoke test 실패 시) ──
       - name: Auto-rollback on failure

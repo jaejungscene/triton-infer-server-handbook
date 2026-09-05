@@ -81,8 +81,10 @@ Decoupled streaming 모델은 HTTP나 일반 gRPC infer가 아니라 bi-directio
 4. main CI가 GitHub-hosted runner에서 image를 candidate tag로 한 번 build/push합니다.
 5. 수동 GPU release workflow가 candidate registry digest를 smoke test한 뒤 SHA release tag로 승격합니다.
 6. staging은 같은 production digest와 모델 세트를 explicit load하고 integration test를 수행합니다.
-7. 별도 GPU workflow에서 같은 revision의 perf baseline을 수동으로 비교합니다.
-8. production은 승인된 SHA가 가리키는 digest를 배포하고 실패 시 이전 release를 적용합니다.
+7. 별도 GPU workflow가 SHA release tag의 정확한 digest를 직접 실행해 전체 ready 모델 성능
+   evidence를 생성합니다.
+8. production preflight는 현재 release digest와 evidence의 digest·workload·결과 hash를
+   재검증하고, 통과한 경우에만 승인을 거쳐 같은 digest를 배포합니다.
 
 GPU runner가 없으면 4단계에서 멈추는 것이 정상입니다. candidate tag는 build 결과를 보존할
 뿐 release identity가 아니며 staging과 production workflow는 SHA release tag만 허용합니다.
@@ -93,6 +95,8 @@ image입니다. 모델이 수십 GB라 registry 전송 비용이 더 큰 환경�
 합니다. 단순히 가변 PVC를 mount하는 것만으로는 재현 가능한 release가 되지 않습니다.
 외부 모델의 manifest 계약, credential 경계와 실패 시 cache 보존 방식은
 [외부 모델 Artifact 파이프라인](model-artifacts.md)에 정리되어 있습니다.
+성능 측정과 실제 배포 byte를 연결하는 계약은
+[정확한 Release Digest 성능 Gate](performance-gate.md)를 따릅니다.
 
 ## 환경별 모델 제어 모드
 

@@ -73,8 +73,11 @@ sequenceDiagram
     GPU->>GPU: smoke test candidate digest + promote SHA tag
     GPU->>Stg: trigger verified immutable release
     Stg->>Stg: integration contract test
-    CI->>Perf: manually benchmark verified revision
-    Dev->>Prod: approve release
+    Dev->>Perf: dispatch release SHA with full scope
+    Perf->>Perf: pull exact digest + baseline + evidence
+    Dev->>Prod: dispatch the same release SHA
+    Prod->>Prod: verify trusted exact-digest evidence
+    Dev->>Prod: approve production Environment
     Prod->>Prod: rolling deploy / explicit load
     Prod->>Prod: monitor alerts and stats
 ```
@@ -112,10 +115,12 @@ revision 추정에 의존하지 않고 기록한 image를 다시 설정한 뒤 �
 image만 되돌리므로 ConfigMap, Secret, API contract를 함께 바꾸는 release는 이전 manifest를
 별도 GitOps revision으로 복원하는 절차가 필요합니다.
 
-성능 비교는 production deploy job 안에서 실행되지 않습니다. self-hosted GPU runner의
-`perf-benchmark.yml`을 수동으로 실행하고, 승인자는 배포할 image SHA와 같은 revision의
-결과 artifact를 확인합니다. 성능 회귀를 강제 gate로 쓸 조직은 이 결과를 production
-Environment 승인 조건에 연결합니다.
+성능 측정 자체는 production deploy job 안에서 실행하지 않습니다. self-hosted GPU runner의
+`perf-benchmark.yml`에 release SHA를 입력하면 workflow가 SHA tag의 정확한 registry digest를
+pull/run합니다. `model`을 비운 전체 실행만 `perf-gate-<SHA>-<digest>` evidence를 만들며,
+production preflight는 현재 tag가 가리키는 digest와 artifact producer·baseline/profile·CSV
+hash를 모두 재검증합니다. 이 단계가 통과해야 production Environment 승인 요청이 생성됩니다.
+세부 계약은 [정확한 Release Digest 성능 Gate](performance-gate.md)를 따릅니다.
 
 기본 pipeline은 model repository를 serving image에 포함하므로 image SHA 하나가 runtime과 모델
 세트를 함께 식별합니다. 대형 모델을 object storage/PVC로 분리하면 model revision과 checksum을
@@ -135,7 +140,7 @@ release metadata에 추가하고, staging에서 검증한 바로 그 revision만
 - `scripts/fetch_artifacts.py --env staging` 후
   `scripts/build.sh --env staging --artifact-root .artifacts --clean` 결과물 확인
 - staging에서 Repository Index API, `/ready`, `/stats`, `/metrics` 확인
-- perf baseline 대비 latency/throughput 악화 여부 확인
+- 배포 SHA의 exact-digest 전체 perf gate artifact와 GPU inventory 확인
 
 로컬에서 staging 전용 구성을 확인할 때는 `--env staging`을 사용할 수 있지만, main release
 CI는 `--env prod`로 최종 모델 세트를 image에 포함합니다. staging CD는 별도 staging image를

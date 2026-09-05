@@ -19,7 +19,9 @@ while [[ $# -gt 0 ]]; do
         shift
     fi
 done
-printf 'Concurrency,Inferences/Second,p95 latency\n8,100,1000\n' > "${output}"
+if [[ "${PERF_SKIP_OUTPUT:-false}" != "true" ]]; then
+    printf 'Concurrency,Inferences/Second,p95 latency\n8,100,1000\n' > "${output}"
+fi
 """,
         encoding="utf-8",
     )
@@ -27,7 +29,7 @@ printf 'Concurrency,Inferences/Second,p95 latency\n8,100,1000\n' > "${output}"
     return bin_dir
 
 
-def _run(project_root, tmp_path, *args, token=None):
+def _run(project_root, tmp_path, *args, token=None, extra_env=None):
     bin_dir = _fake_perf_analyzer(tmp_path)
     arguments_file = tmp_path / "perf-arguments.txt"
     environment = {
@@ -38,6 +40,8 @@ def _run(project_root, tmp_path, *args, token=None):
     }
     if token is not None:
         environment["TRITON_AUTH_TOKEN"] = token
+    if extra_env:
+        environment.update(extra_env)
     result = subprocess.run(
         [
             str(Path(project_root) / "tests" / "perf" / "run_perf_analyzer.sh"),
@@ -98,3 +102,15 @@ def test_perf_runner_rejects_token_with_line_break(project_root, tmp_path):
     assert result.returncode == 2
     assert "must not contain line breaks" in result.stderr
     assert not arguments_file.exists()
+
+
+def test_perf_runner_requires_a_non_empty_result_csv(project_root, tmp_path):
+    result, arguments_file = _run(
+        project_root,
+        tmp_path,
+        extra_env={"PERF_SKIP_OUTPUT": "true"},
+    )
+
+    assert arguments_file.exists()
+    assert result.returncode == 1
+    assert "did not create a regular non-empty CSV" in result.stderr

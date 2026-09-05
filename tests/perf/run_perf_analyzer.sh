@@ -108,6 +108,8 @@ trap cleanup EXIT
 run_perf() {
     local model_name="$1"
     local profile_output
+    local result_file
+    local -a perf_command=()
     local -a profile_args=()
 
     if [[ ! "${model_name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
@@ -129,16 +131,28 @@ run_perf() {
     echo "[perf] Testing model: ${model_name}"
     echo "=========================================="
 
-    perf_analyzer \
+    result_file="${RESULTS_DIR}/${model_name}_perf.csv"
+
+    perf_command=(perf_analyzer \
         -m "${model_name}" \
-        -u "${PERF_URL}" \
-        "${perf_connection_args[@]}" \
+        -u "${PERF_URL}")
+    if [[ ${#perf_connection_args[@]} -gt 0 ]]; then
+        perf_command+=("${perf_connection_args[@]}")
+    fi
+    perf_command+=( \
         --percentile=95 \
         --concurrency-range="${CONCURRENCY}" \
         --measurement-interval=10000 \
         "${profile_args[@]}" \
-        -f "${RESULTS_DIR}/${model_name}_perf.csv" \
+        -f "${result_file}")
+
+    "${perf_command[@]}" \
         2>&1 | tee "${RESULTS_DIR}/${model_name}_perf.log"
+
+    if [[ ! -s "${result_file}" || -L "${result_file}" ]]; then
+        echo "ERROR: perf_analyzer did not create a regular non-empty CSV for ${model_name}" >&2
+        return 1
+    fi
 
     echo ""
 }

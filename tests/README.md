@@ -64,6 +64,12 @@ cache, rate limiter 인자로 기동한 뒤 smoke, 필수 text classifier, cache
 통과해야 SHA release tag를 생성합니다. GPU runner가 없으면 candidate 단계에서 멈추며,
 검증되지 않은 image가 staging으로 넘어가지 않습니다.
 
+성능 workflow는 GPU release가 만든 SHA tag를 registry digest로 해석하고 그
+`image@sha256:...`를 직접 pull/run합니다. `model` 입력을 비운 전체 실행만
+`release_evidence.py`로 source SHA, image digest, baseline/profile hash, 결과 CSV hash,
+workflow run·attempt·workflow revision과 GPU inventory를 묶은 production gate artifact를 생성합니다. 특정 모델 입력은
+진단용이며 gate evidence를 만들지 않습니다.
+
 성능 검증은 Repository Index API에서 ready 모델을 조회한 뒤 모델별 CSV를 생성하고,
 `tests/perf/profiles.json`의 input data·batch size·shape로 부하를 만든 다음
 `tests/perf/baseline.json`의 동일 concurrency 기준과 비교합니다. `perf_analyzer`의 latency
@@ -75,6 +81,8 @@ measurement가 둘 이상이면 입력 오류로 중단합니다. 따라서 `NaN
 측정해 갱신해야 합니다. 기준선에 없는 모델이나 결과가 하나도 없는 실행은 성공으로
 간주하지 않습니다. 새 모델을 benchmark 대상에 추가할 때 profile과 baseline을 함께 추가해야
 하며, profile이 없는 ready 모델은 임의 random input으로 측정하지 않고 즉시 실패합니다.
+`perf_analyzer`가 성공 코드를 반환해도 모델별 CSV가 비었거나 생성되지 않았으면 gate를
+실패시킵니다.
 
 ## 환경변수
 

@@ -19,7 +19,7 @@
 
 - `models/` 하위 변경 시 ML팀 리뷰 필수 (CODEOWNERS)
 - config.pbtxt 변경 시 `scripts/validate.sh` 로컬 실행 권장
-- 성능에 영향을 줄 수 있는 변경은 perf test 결과 첨부
+- 성능에 영향을 줄 수 있는 변경은 SHA release tag의 정확한 digest에서 실행한 전체 perf gate 첨부
 
 ## 로컬 검증
 
@@ -68,7 +68,8 @@ production Compose의 Redis, Prometheus, Grafana와 CI의 Prometheus 도구 imag
 main CI는 `candidate-<commit SHA>` image만 게시합니다. candidate는 GPU 검증 전 artifact이므로
 staging이나 production에 사용하지 않습니다. NVIDIA GPU runner가 준비된 시점에 main에서
 `CI - GPU Release`를 수동 실행하고, runtime contract를 통과해 `<commit SHA>` release tag가
-생성된 뒤에만 staging과 production 절차를 진행합니다.
+생성된 뒤 `Performance Benchmark`에 같은 SHA를 입력합니다. `model`을 비운 전체 실행의
+exact-digest evidence가 있어야 production preflight와 승인 절차를 진행할 수 있습니다.
 
 ## 커밋 메시지
 
